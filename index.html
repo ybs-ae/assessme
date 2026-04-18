@@ -651,6 +651,12 @@ tbody tr:hover td{background:var(--surface-2);}
   .settings-shell{grid-template-columns:1fr;}
   .settings-nav{display:none;}
 }
+/* ── CANDIDATE MODE — hide all admin chrome ── */
+body.candidate-mode #mobileNav,
+body.candidate-mode .mobile-nav,
+body.candidate-mode #admin-shell,
+body.candidate-mode #login-screen { display:none!important; }
+body.candidate-mode { background:var(--bg); }
 </style>
 <script>
 (function(){
@@ -2258,12 +2264,14 @@ function renderModuleChips(containerId,activeKeys,toggleFn){
   const labels={big5:'Personality',cognitive:'Cognitive',typing:'Typing',video:'Video interview'};
   el.innerHTML=modules.map(m=>{
     const on=Array.isArray(activeKeys)?activeKeys.includes(m.key):activeKeys[m.key]!==false;
-    const style='padding:5px 14px;border-radius:99px;font-size:12px;font-weight:500;cursor:pointer;font-family:\'Geist\',sans-serif;transition:all .13s;white-space:nowrap;border:1px solid '+(on?'var(--accent)':'var(--border)')+';background:'+(on?'var(--accent)':'#fff')+';color:'+(on?'#fff':'var(--text-2)')+';';
+    const style='padding:5px 14px;border-radius:99px;font-size:12px;font-weight:500;cursor:pointer;font-family:\'Geist\',sans-serif;transition:all .13s;white-space:nowrap;border:1px solid '+(on?'var(--accent)':'var(--border-2)')+';background:'+(on?'var(--accent)':'var(--surface-2)')+';color:'+(on?'#fff':'var(--text-3)')+';opacity:'+(on?'1':'0.55')+';';
     return`<button data-key="${m.key}" onclick="${toggleFn}('${m.key}','${containerId}')" style="${style}">${labels[m.key]||m.label}</button>`;
   }).join('');
 }
-let quickModuleState={big5:true,cognitive:true,typing:true};
-let invModuleState={big5:true,cognitive:true,typing:true};
+let quickModuleState={big5:true,cognitive:true,typing:true,video:false};
+// Load persisted module selection (user's last choice is remembered)
+try{const _qm=JSON.parse(localStorage.getItem('ybs_quick_modules')||'null');if(_qm!==null)quickModuleState=_qm;}catch(e){}
+let invModuleState={big5:true,cognitive:true,typing:true,video:false};
 let defaultModules={big5:true,cognitive:true,typing:true,video:false};
 function renderSettingsPositions(){
   const el=document.getElementById('settingsPositionsList');if(!el)return;
@@ -2307,7 +2315,11 @@ function renderModuleDetail(){
 // Load saved defaults
 try{const dm=JSON.parse(localStorage.getItem('ybs_default_modules')||'null');if(dm)defaultModules=dm;}catch(e){}
 function toggleModuleChip(key,containerId){
-  if(containerId==='quickModChips'){quickModuleState[key]=!quickModuleState[key];renderModuleChips(containerId,quickModuleState,'toggleModuleChip');}
+  if(containerId==='quickModChips'){
+    quickModuleState[key]=!quickModuleState[key];
+    try{localStorage.setItem('ybs_quick_modules',JSON.stringify(quickModuleState));}catch(e){}
+    renderModuleChips(containerId,quickModuleState,'toggleModuleChip');
+  }
   else if(containerId==='invModuleChips'){invModuleState[key]=!invModuleState[key];renderModuleChips(containerId,invModuleState,'toggleModuleChip');}
   else{renderModuleChips(containerId,{},containerId==='posModuleChips'?'togglePosModuleChip':'toggleModuleChip');}
 }
@@ -2408,14 +2420,14 @@ function quickSendInvite(){
   function setErr(t){if(msgEl){msgEl.innerHTML='<span style="color:var(--red);">'+t+'</span>';setTimeout(()=>msgEl.innerHTML='',3000);}}
   if(!email||!email.includes('@')){setErr('Valid email required');return;}
   if(!role){setErr('Select a position');return;}
-  const name=email.split('@')[0];
+  const name=''; // Will be filled in by candidate on welcome screen
   const now=new Date();
   const today=fmtDateShort();
   const timeStr=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const invitedAt=today+' '+timeStr;
   const tok='tok-'+Math.random().toString(36).slice(2,10);
   const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok;
-  const selectedMods=Object.keys(quickModuleState).filter(k=>quickModuleState[k]!==false);
+  const selectedMods={big5:!!quickModuleState.big5,cognitive:!!quickModuleState.cognitive,typing:!!quickModuleState.typing,video:!!quickModuleState.video};
   const hasVideo=quickModuleState.video===true;
   candidates.push({id:Date.now(),name,email,role,status:'Invited',invited:invitedAt,score:null,verdict:'Pending',notes:'',_token:tok,modules:selectedMods});
   invites.push({name,email,role,status:'Invited',date:invitedAt});
@@ -2844,7 +2856,7 @@ function renderDash(){
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="width:34px;height:34px;border-radius:8px;background:${avColor(i)};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:.3px;">${ini(c.name)}</div>
           <div>
-            <div style="font-weight:600;font-size:13px;color:var(--text);">${c.name}</div>
+            <div style="font-weight:600;font-size:13px;color:var(--text);">${c.name||c.email||'Unknown'}</div>
             <div style="font-size:11px;color:var(--text-3);margin-top:1px;">${c.email}</div>
           </div>
         </div>
@@ -4971,13 +4983,16 @@ function initCandidateView(){
     try{
       const sv=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
       const cr=sv.find(x=>x._token===assessToken);
-      if(cr&&cr.modules){
-        // modules is array of keys: ['big5','cognitive','typing'] or similar
-        const mArr=Array.isArray(cr.modules)?cr.modules:Object.keys(cr.modules).filter(k=>cr.modules[k]);
+      if(cr){
+        // Normalize modules to object regardless of storage format
+        const mArr=modsArray(cr.modules);
+        // If no modules stored, assume all active
+        const allActive=!cr.modules||mArr.length===0;
         cvState.modules={
-          big5: mArr.includes('big5'),
-          cognitive: mArr.includes('cognitive'),
-          typing: mArr.includes('typing')
+          big5: allActive||mArr.includes('big5'),
+          cognitive: allActive||mArr.includes('cognitive'),
+          typing: allActive||mArr.includes('typing'),
+          video: mArr.includes('video')
         };
         cvState.role=cr.role||'';
       }
@@ -5519,6 +5534,14 @@ function cvStartAssessment(){
   cvState.name=name;cvState.email=email;cvState.gender=gender;cvState.age=age;cvState.country=country;cvState.role=cvState.role||'General';
   cvState.step=cvGetActiveSteps()[1]||4;
   cvPushStatus(cvState.token,'In Progress');
+  // Update name in localStorage immediately so admin sees it right away
+  try{
+    const _lc=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+    const _ri=_lc.findIndex(c=>c._token===cvState.token);
+    if(_ri>=0){_lc[_ri].name=name;_lc[_ri].email=email;_lc[_ri].gender=gender;_lc[_ri].age=age;_lc[_ri].country=country;
+      localStorage.setItem('vettiq_candidates',JSON.stringify(_lc));
+    }
+  }catch(e){}
   cvSave();cvRender();
 }
 function cvCognitive(){
