@@ -2439,8 +2439,9 @@ function quickSendInvite(){
   const timeStr=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const invitedAt=today+' '+timeStr;
   const tok='tok-'+Math.random().toString(36).slice(2,10);
-  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok;
   const selectedMods={big5:!!quickModuleState.big5,cognitive:!!quickModuleState.cognitive,typing:!!quickModuleState.typing,video:!!quickModuleState.video};
+  const modCode=(selectedMods.big5?'b':'')+(selectedMods.cognitive?'c':'')+(selectedMods.typing?'t':'')+(selectedMods.video?'v':'');
+  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok+(modCode?'&m='+modCode:'');
   const hasVideo=quickModuleState.video===true;
   candidates.push({id:Date.now(),name,email,role,status:'Invited',invited:invitedAt,score:null,verdict:'Pending',notes:'',_token:tok,modules:selectedMods});
   invites.push({name,email,role,status:'Invited',date:invitedAt});
@@ -4992,22 +4993,33 @@ function initCandidateView(){
     }catch(e){}
     // Push "Link Opened" status immediately when candidate opens URL
     cvPushStatus(assessToken,'Link Opened');
-    // Load modules from saved candidate record
+    // Load modules from URL param first (most reliable — works cross-device)
+    const _modParam=params.get('m')||'';
+    if(_modParam){
+      cvState.modules={
+        big5:_modParam.includes('b'),
+        cognitive:_modParam.includes('c'),
+        typing:_modParam.includes('t'),
+        video:_modParam.includes('v')
+      };
+    }
+    // Also try localStorage for role and any extra info
     try{
       const sv=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
       const cr=sv.find(x=>x._token===assessToken);
       if(cr){
-        // Normalize modules to object regardless of storage format
-        const mArr=modsArray(cr.modules);
-        // If no modules stored, assume all active
-        const allActive=!cr.modules||mArr.length===0;
-        cvState.modules={
-          big5: allActive||mArr.includes('big5'),
-          cognitive: allActive||mArr.includes('cognitive'),
-          typing: allActive||mArr.includes('typing'),
-          video: mArr.includes('video')
-        };
         cvState.role=cr.role||'';
+        // Only use localStorage modules if URL had no module param
+        if(!_modParam){
+          const mArr=modsArray(cr.modules);
+          const allActive=!cr.modules||mArr.length===0;
+          cvState.modules={
+            big5:allActive||mArr.includes('big5'),
+            cognitive:allActive||mArr.includes('cognitive'),
+            typing:allActive||mArr.includes('typing'),
+            video:mArr.includes('video')
+          };
+        }
       }
     }catch(e){}
     const td=document.getElementById('cv-token-display');
