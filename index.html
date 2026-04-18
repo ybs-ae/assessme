@@ -5608,6 +5608,32 @@ function cvSubmitTyping(){
   cvState.rawAnswers={...cvState.b5Answers};
   cvState.step=4;cvRender();
 }
+function _buildShareSection(){
+  const div=document.createElement('div');
+  div.style.cssText='background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px;';
+  const qrWrap=document.createElement('div');
+  qrWrap.id='cv-qr-container';
+  qrWrap.style.cssText='display:flex;justify-content:center;margin-bottom:16px;';
+  qrWrap.innerHTML='<div style="font-size:12px;color:#999;padding:20px;">Generating QR code…</div>';
+  const title=document.createElement('div');
+  title.style.cssText='font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;';
+  title.textContent='Show this QR code to HR';
+  const sub=document.createElement('div');
+  sub.style.cssText='font-size:12px;color:var(--text-3);margin-bottom:16px;';
+  sub.textContent='HR scans it with their phone, or clicks Import results in the admin dashboard';
+  const openBtn=document.createElement('button');
+  openBtn.id='cv-open-btn';
+  openBtn.style.cssText='height:40px;width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;font-family:Geist,sans-serif;margin-bottom:8px;';
+  openBtn.textContent='Open results link (tap & share)';
+  const copyBtn=document.createElement('button');
+  copyBtn.id='cv-copy-btn';
+  copyBtn.style.cssText='height:40px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;font-family:Geist,sans-serif;color:var(--text-2);';
+  copyBtn.textContent='Copy results link';
+  div.appendChild(title);div.appendChild(sub);div.appendChild(qrWrap);
+  div.appendChild(openBtn);div.appendChild(copyBtn);
+  return div;
+}
+
 function cvDone(){
   // Compute scores from whatever was answered
   const allScores=computeAllScores(cvState.b5Answers||{});
@@ -5715,7 +5741,10 @@ function cvDone(){
   const _baseUrl=window.location.href.split('?')[0].split('#')[0];
   const _importUrl=_baseUrl+'?import='+_b64;
 
-  // Render completion screen with QR code
+  // Only show share section if cloud sync is NOT configured
+  const _syncActive=syncEnabled();
+  const _syncShareSection='';// placeholder — real share section added via DOM after render
+
   const _bodyEl=document.getElementById('cv-body');
   _bodyEl.innerHTML=`
   <div class="cv-card" style="max-width:520px;margin:0 auto;text-align:center;">
@@ -5724,41 +5753,45 @@ function cvDone(){
     </div>
     <div style="font-size:26px;font-weight:700;margin-bottom:8px;">All done!</div>
     <div style="font-size:14px;color:var(--text-2);line-height:1.75;margin-bottom:24px;">
-      Thank you, ${(cvState.name||'').split(' ')[0]}. Your assessment is complete.<br>
-      <strong>Please show this screen to HR</strong> so they can scan the QR code.
+      Thank you, ${(cvState.name||'').split(' ')[0]}.<br>Your results have been submitted to the hiring team.
     </div>
     ${videoSection}
-    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;margin-bottom:16px;">
-      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">📱 Show this QR code to HR</div>
-      <div style="font-size:12px;color:var(--text-3);margin-bottom:16px;">HR scans it with their phone or clicks "Import results" on the dashboard</div>
-      <div id="cv-qr-container" style="display:flex;justify-content:center;margin-bottom:16px;">
-        <div style="font-size:12px;color:var(--text-3);padding:20px;">Generating QR code…</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <button onclick="window.open('${_importUrl}','_blank')" style="height:40px;background:var(--accent);color:#fff;border:none;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;font-family:'Geist',sans-serif;">
-          Open results link (tap &amp; share)
-        </button>
-        <button id="cv-copy-btn" onclick="navigator.clipboard.writeText('${_importUrl}').then(()=>{this.textContent='✓ Link copied!';this.style.color='var(--green)';setTimeout(()=>{this.textContent='Copy results link';this.style.color='';},3000);}).catch(()=>{prompt('Copy this link:','${_importUrl}');})" style="height:40px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;font-family:'Geist',sans-serif;color:var(--text-2);">
-          Copy results link
-        </button>
-      </div>
-    </div>
+    \${_syncShareSection}
     <div style="font-size:12px;color:var(--text-3);">Results are confidential and for HR use only.</div>
   </div>`;
 
-  // Generate QR code using qrserver.com free API
-  setTimeout(()=>{
-    const qrContainer=document.getElementById('cv-qr-container');
-    if(qrContainer){
-      const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data='+encodeURIComponent(_importUrl);
-      const img=document.createElement('img');
-      img.src=qrUrl;img.width=200;img.height=200;
-      img.style.cssText='border-radius:8px;border:1px solid #e5e7eb;';
-      img.alt='QR Code';
-      img.onerror=function(){qrContainer.innerHTML='<div style="font-size:12px;color:#999;padding:10px;">QR unavailable — use the link below</div>';};
-      qrContainer.innerHTML='';qrContainer.appendChild(img);
-    }
-  },100);
+  // Add share section and QR code via DOM if sync not active
+  if(!_syncActive){
+    setTimeout(()=>{
+      const cardEl=_bodyEl.querySelector('.cv-card');
+      const confidentialEl=_bodyEl.querySelector('[style*="confidential"]');
+      if(cardEl){
+        const shareDiv=_buildShareSection(_importUrl);
+        cardEl.insertBefore(shareDiv,confidentialEl||null);
+        // Wire buttons
+        const openBtn=document.getElementById('cv-open-btn');
+        if(openBtn)openBtn.onclick=function(){window.open(_importUrl,'_blank');};
+        const copyBtn=document.getElementById('cv-copy-btn');
+        if(copyBtn)copyBtn.onclick=function(){
+          navigator.clipboard.writeText(_importUrl).then(()=>{
+            copyBtn.textContent='✓ Link copied!';copyBtn.style.color='var(--green)';
+            setTimeout(()=>{copyBtn.textContent='Copy results link';copyBtn.style.color='';},3000);
+          }).catch(()=>{prompt('Copy this link:',_importUrl);});
+        };
+        // Generate QR code
+        const qrContainer=document.getElementById('cv-qr-container');
+        if(qrContainer){
+          const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data='+encodeURIComponent(_importUrl);
+          const img=document.createElement('img');
+          img.src=qrUrl;img.width=180;img.height=180;
+          img.style.cssText='border-radius:8px;border:1px solid #e5e7eb;';
+          img.alt='QR Code';
+          img.onerror=function(){qrContainer.innerHTML='<div style="font-size:12px;color:#999;padding:10px;">QR unavailable — use the link below</div>';};
+          qrContainer.innerHTML='';qrContainer.appendChild(img);
+        }
+      }
+    },100);
+  }
 }
 
 function cvStartVideoInterview(intToken){
