@@ -1035,6 +1035,7 @@ tbody tr:hover td{background:var(--surface-2);}
         <div class="settings-row">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:600px;margin-bottom:16px;">
             <div style="grid-column:1/-1;"><label>Company name</label><input type="text" id="set-company" value="YBS Corp"/></div>
+            <div style="grid-column:1/-1;"><label>HR email (shown to candidates for sending results)</label><input type="email" id="set-hr-email" placeholder="hr@yourcompany.com" oninput="try{localStorage.setItem('ybs_hr_email',this.value);}catch(e){}"/></div>
             <div><label>HR contact email</label><input type="email" id="set-email" value="hr@company.com"/></div>
             <div><label>Default invite expiry</label><select id="set-expiry"><option value="3">3 days</option><option value="7" selected>7 days</option><option value="14">14 days</option></select></div>
           </div>
@@ -1095,6 +1096,24 @@ tbody tr:hover td{background:var(--surface-2);}
           <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin:0;"><div><div style="font-weight:600;font-size:13px;margin-bottom:3px;">Hide IQ estimate from candidates</div><div style="font-size:12px;color:var(--text-3);">Cognitive score visible only in the admin report</div></div><div class="toggle-sw on" onclick="this.classList.toggle('on')"></div></label>
         </div>
       </div>
+      <div class="settings-section" id="stab-sync">
+        <div class="settings-section-title">Cloud sync</div>
+        <div class="settings-section-sub">Sync candidate results across devices automatically. Uses <strong>JSONBin.io</strong> (free).</div>
+        <div class="settings-row" style="margin-top:12px;">
+          <div id="sync-status-card"></div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Setup</div>
+          <ol style="font-size:13px;color:var(--text-2);line-height:2;margin:0 0 14px 16px;">
+            <li>Go to <a href="https://jsonbin.io" target="_blank" style="color:var(--accent);">jsonbin.io</a> → Sign up free</li>
+            <li>Click your profile → <strong>API Keys</strong> → copy your <strong>Master Key</strong></li>
+            <li>Paste it below and click Connect</li>
+          </ol>
+          <div style="display:flex;gap:8px;max-width:500px;margin-bottom:8px;">
+            <input type="password" id="sync-api-key" placeholder="Paste your JSONBin Master Key..." style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;"/>
+            <button class="btn btn-primary btn-sm" onclick="syncSetup()" style="white-space:nowrap;">Connect</button>
+          </div>
+          <div id="sync-status" style="font-size:13px;min-height:18px;"></div>
+        </div>
+      </div>
       <div class="settings-section" id="stab-account">
         <div class="settings-section-title">Admin account</div>
         <div class="settings-row">
@@ -1125,6 +1144,30 @@ tbody tr:hover td{background:var(--surface-2);}
 </div>
 <!-- DEMO -->
 
+
+<!-- IMPORT MODAL -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal" style="max-width:500px;">
+    <button class="modal-close" onclick="closeModal('importModal')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Import candidate results</div>
+    <div style="font-size:13px;color:var(--text-2);margin-bottom:16px;line-height:1.6;">Paste the results link the candidate shared, or upload the JSON file.</div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px;">Paste result code</label>
+      <textarea id="importPasteArea" placeholder='Paste the candidate's result code here...' style="width:100%;height:120px;font-family:'Geist Mono',monospace;font-size:11px;padding:10px;border:1px solid var(--border);border-radius:var(--r);resize:none;outline:none;background:var(--surface-2);color:var(--text);"></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px;">Or upload JSON file</label>
+      <input type="file" accept=".json,.txt" id="importFileInput" onchange="importFromFile(this)" style="font-size:13px;"/>
+    </div>
+    <div id="importMsg" style="font-size:13px;min-height:20px;margin-bottom:12px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="closeModal('importModal')">Cancel</button>
+      <button class="btn btn-accent" onclick="importFromPaste()">Import</button>
+    </div>
+  </div>
+</div>
 
 <!-- eNPS PAGE -->
 <div id="page-enps" class="content page" style="display:none;">
@@ -2087,7 +2130,7 @@ function showPage(id,el){
   }
   if(id==='interview')renderInterviewPage();
   if(id==='settings'){
-    const dmEl=document.getElementById('set-modules-render');if(dmEl)renderModuleChips('set-modules-render',defaultModules,'toggleDefaultModule');renderSettings();setTimeout(loadApiKeyIntoSettings,50);}
+    const dmEl=document.getElementById('set-modules-render');if(dmEl)renderModuleChips('set-modules-render',defaultModules,'toggleDefaultModule');renderSettings();setTimeout(loadApiKeyIntoSettings,50);try{const he=document.getElementById('set-hr-email');if(he)he.value=localStorage.getItem('ybs_hr_email')||'';}catch(e){}try{renderSyncStatus();}catch(e){}}
   if(id==='stats')renderStats();
   if(id==='enps')renderEnps();
   // Mobile nav active state
@@ -2916,6 +2959,71 @@ function cvEffectiveStatus(c){
   const missedDeadline=elapsed>3*24*60*60*1000&&c.status!=='Completed';
   return{status:c.status||'Invited',expired:false,missedDeadline,daysElapsed:Math.floor(elapsed/(24*60*60*1000))};
 }
+function openImportModal(){
+  document.getElementById('importPasteArea').value='';
+  document.getElementById('importMsg').textContent='';
+  document.getElementById('importFileInput').value='';
+  document.getElementById('importModal').classList.add('open');
+}
+
+function _doImport(jsonStr){
+  const msg=document.getElementById('importMsg');
+  try{
+    let data;
+    // Try extracting ?import= base64 param from URL
+    const urlMatch=jsonStr.match(/[?&]import=([A-Za-z0-9+/=%-]+)/);
+    if(urlMatch){
+      try{
+        const decoded=decodeURIComponent(escape(atob(decodeURIComponent(urlMatch[1]))));
+        data=JSON.parse(decoded);
+      }catch(e){throw new Error('Invalid results link.');}
+    } else {
+      // Try raw JSON
+      const match=jsonStr.match(/\{[\s\S]*\}/);
+      if(!match)throw new Error('No valid results link or code found.');
+      data=JSON.parse(match[0]);
+    }
+    if(!data._assessExport)throw new Error('This does not look like an assessment result code.');
+    // Remove internal export flag
+    delete data._assessExport;
+    // Refresh candidates from localStorage
+    const fresh=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+    // Find existing by token or id
+    const idx=fresh.findIndex(c=>c._token===data._token||String(c.id)===String(data.id));
+    if(idx>=0){
+      // Merge — preserve existing fields, overwrite with submitted data
+      fresh[idx]=Object.assign({},fresh[idx],data);
+      fresh[idx].status='Completed';
+    } else {
+      fresh.unshift(data);
+    }
+    localStorage.setItem('vettiq_candidates',JSON.stringify(fresh));
+    candidates=fresh;
+    candidates.sort((a,b)=>parseCandDate(b.invited)-parseCandDate(a.invited));
+    persistCandidates();
+    renderDash();
+    msg.style.color='var(--green)';
+    msg.textContent='✓ Results imported for '+data.name+'!';
+    setTimeout(()=>closeModal('importModal'),1500);
+  }catch(e){
+    msg.style.color='var(--red)';
+    msg.textContent='Error: '+e.message;
+  }
+}
+
+function importFromPaste(){
+  const text=document.getElementById('importPasteArea').value.trim();
+  if(!text){document.getElementById('importMsg').textContent='Please paste the result code.';return;}
+  _doImport(text);
+}
+
+function importFromFile(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>_doImport(e.target.result);
+  reader.readAsText(file);
+}
+
 function exportSelected(){const sel=selectedCands.size>0?candidates.filter(c=>selectedCands.has(c.id)):candidates.filter(c=>!c.interviewOnly);const h=['Name','Email','Role','Status','Verdict','Overall','Cognitive','WPM'];const rows=sel.map(c=>[c.name,c.email,c.role,c.status,c.verdict,overallScore(c.score)||'',c.score?.cognitive||'',c.score?.typing?.wpm||''].map(v=>`"${v}"`).join(','));const blob=new Blob([[h.join(','),...rows].join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vettiq_candidates.csv';a.click();}
 
 
@@ -5494,12 +5602,17 @@ function cvDone(){
   }
   try{
     localStorage.setItem('vettiq_candidates',JSON.stringify(liveCands));
-    // Notify admin page (if open in same tab via iframe or same window)
     try{window.dispatchEvent(new StorageEvent('storage',{key:'vettiq_candidates'}));}catch(e){}
   }catch(e){console.error('cvDone SAVE FAILED:',e);}
   candidates=liveCands;
+  // Push to cloud if sync is configured
+  const _savedRecord=liveCands[liveIdx>=0?liveIdx:0];
+  if(_savedRecord)syncPushCandidate(_savedRecord).catch(()=>{});
   // Mark completed
   try{localStorage.setItem('cv_progress_'+cvState.token,JSON.stringify({step:4,completedAt:Date.now(),name:cvState.name,token:cvState.token}));}catch(e){console.error('cvDone error:',e);}
+  // Push to cloud sync if configured
+  const _syncRecord=liveCands[liveIdx>=0?liveIdx:0];
+  if(_syncRecord)syncPushCandidate(_syncRecord).catch(()=>{});
   // Check for linked video interview
   let linkedIntToken='';
   try{
@@ -5508,14 +5621,97 @@ function cvDone(){
     if(!linkedIntToken){const cr=liveCands.find(c=>c._token===cvState.token);if(cr&&cr._interviewToken)linkedIntToken=cr._interviewToken;}
   }catch(e){console.error('cvDone error:',e);}
   const videoSection=linkedIntToken?`<div style="margin-top:28px;padding:24px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);text-align:center;"><div style="font-size:14px;font-weight:700;margin-bottom:8px;">Next step: Video Interview</div><div style="font-size:13px;color:var(--text-2);line-height:1.7;margin-bottom:20px;">You have also been invited to complete a short video interview.<br>It takes approximately 20–30 minutes.</div><button onclick="cvStartVideoInterview('${linkedIntToken}')" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;background:var(--text);color:#fff;border:none;border-radius:var(--r);font-size:14px;font-weight:600;cursor:pointer;font-family:'Geist',sans-serif;">Begin video interview</button></div>`:'';
-  document.getElementById('cv-body').innerHTML=`
+  // Build export payload for email delivery
+  const _exportPayload=JSON.stringify({
+    _assessExport:true,
+    id:liveCands[liveIdx>=0?liveIdx:0]?.id||Date.now(),
+    name:cvState.name,email:cvState.email,role:cvState.role,
+    status:'Completed',
+    invited:liveCands[liveIdx>=0?liveIdx:0]?.invited||ds,
+    score:scoreData,modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
+    timing:cvState.timing||{},
+    gender:cvState.gender,age:cvState.age,country:cvState.country,
+    verdict:'Pending',notes:'',
+    _token:cvState.token,
+    _exportedAt:new Date().toISOString()
+  });
+
+  // Get HR email from admin settings (stored in localStorage)
+  const _hrEmail=(()=>{try{return localStorage.getItem('ybs_hr_email')||'';}catch(e){return'';}})();
+
+  function _cvSendByEmail(){
+    const subj=encodeURIComponent('Assessment Results — '+cvState.name+' ('+cvState.role+')');
+    const body=encodeURIComponent(
+      'Hi,\n\nPlease find my assessment results below.\n\n'
+      +'--- PASTE THE CODE BELOW INTO THE ADMIN IMPORT ---\n\n'
+      +_exportPayload
+      +'\n\n--- END ---\n\nThank you,\n'+cvState.name
+    );
+    window.location.href='mailto:'+_hrEmail+'?subject='+subj+'&body='+body;
+  }
+
+  function _cvCopyCode(){
+    navigator.clipboard.writeText(_exportPayload).then(()=>{
+      const btn=document.getElementById('cv-copy-btn');
+      if(btn){btn.textContent='✓ Copied!';btn.style.background='var(--green)';setTimeout(()=>{btn.textContent='Copy result code';btn.style.background='';},3000);}
+    }).catch(()=>{
+      // Fallback
+      const ta=document.createElement('textarea');ta.value=_exportPayload;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      const btn=document.getElementById('cv-copy-btn');
+      if(btn){btn.textContent='✓ Copied!';btn.style.background='var(--green)';setTimeout(()=>{btn.textContent='Copy result code';btn.style.background='';},3000);}
+    });
+  }
+
+  // Build import URL — encode payload as base64 in URL param
+  // Admin opens this URL → app auto-imports the results
+  const _b64=btoa(unescape(encodeURIComponent(_exportPayload)));
+  const _baseUrl=window.location.href.split('?')[0].split('#')[0];
+  const _importUrl=_baseUrl+'?import='+_b64;
+
+  // Render completion screen with QR code
+  const _bodyEl=document.getElementById('cv-body');
+  _bodyEl.innerHTML=`
   <div class="cv-card" style="max-width:520px;margin:0 auto;text-align:center;">
-    <div style="width:72px;height:72px;border-radius:50%;background:var(--green-s);border:1.5px solid var(--green-b);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg></div>
-    <div style="font-size:26px;font-weight:700;margin-bottom:12px;">Assessment complete!</div>
-    <div style="font-size:14px;color:var(--text-2);line-height:1.75;margin-bottom:8px;">Thank you, ${(cvState.name||'').split(' ')[0]}.<br>Your results have been submitted to the hiring team.</div>
+    <div style="width:72px;height:72px;border-radius:50%;background:var(--green-s);border:1.5px solid var(--green-b);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>
+    </div>
+    <div style="font-size:26px;font-weight:700;margin-bottom:8px;">All done!</div>
+    <div style="font-size:14px;color:var(--text-2);line-height:1.75;margin-bottom:24px;">
+      Thank you, ${(cvState.name||'').split(' ')[0]}. Your assessment is complete.<br>
+      <strong>Please show this screen to HR</strong> so they can scan the QR code.
+    </div>
     ${videoSection}
-    <div style="margin-top:24px;font-size:12px;color:var(--text-3);">Results are confidential and for HR review only.</div>
+    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">📱 Show this QR code to HR</div>
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:16px;">HR scans it with their phone or clicks "Import results" on the dashboard</div>
+      <div id="cv-qr-container" style="display:flex;justify-content:center;margin-bottom:16px;">
+        <div style="font-size:12px;color:var(--text-3);padding:20px;">Generating QR code…</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button onclick="window.open('${_importUrl}','_blank')" style="height:40px;background:var(--accent);color:#fff;border:none;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;font-family:'Geist',sans-serif;">
+          Open results link (tap &amp; share)
+        </button>
+        <button id="cv-copy-btn" onclick="navigator.clipboard.writeText('${_importUrl}').then(()=>{this.textContent='✓ Link copied!';this.style.color='var(--green)';setTimeout(()=>{this.textContent='Copy results link';this.style.color='';},3000);}).catch(()=>{prompt('Copy this link:','${_importUrl}');})" style="height:40px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;font-family:'Geist',sans-serif;color:var(--text-2);">
+          Copy results link
+        </button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text-3);">Results are confidential and for HR use only.</div>
   </div>`;
+
+  // Generate QR code using qrserver.com free API
+  setTimeout(()=>{
+    const qrContainer=document.getElementById('cv-qr-container');
+    if(qrContainer){
+      const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data='+encodeURIComponent(_importUrl);
+      const img=document.createElement('img');
+      img.src=qrUrl;img.width=200;img.height=200;
+      img.style.cssText='border-radius:8px;border:1px solid #e5e7eb;';
+      img.alt='QR Code';
+      img.onerror=function(){qrContainer.innerHTML='<div style="font-size:12px;color:#999;padding:10px;">QR unavailable — use the link below</div>';};
+      qrContainer.innerHTML='';qrContainer.appendChild(img);
+    }
+  },100);
 }
 
 function cvStartVideoInterview(intToken){
@@ -6398,6 +6594,131 @@ function saveCredentials(){
   showMsg('Credentials updated successfully.',true);
 }
 
+/* ═══════════════════════════════════════════
+   CLOUD SYNC — JSONBin.io
+   Candidate results are pushed to a cloud bin when submitted.
+   Admin dashboard pulls from cloud on load, merging with local.
+   Setup: Settings → Sync → enter your JSONBin API key + Bin ID.
+═══════════════════════════════════════════ */
+function syncGetConfig(){
+  try{return JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){return null;}
+}
+function syncEnabled(){
+  const cfg=syncGetConfig();
+  return !!(cfg&&cfg.apiKey&&cfg.binId);
+}
+
+// Called from cvDone — pushes one candidate record to the cloud bin
+async function syncPushCandidate(record){
+  const cfg=syncGetConfig();
+  if(!cfg||!cfg.apiKey||!cfg.binId)return;
+  try{
+    // Fetch current bin content
+    const getResp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest',{
+      headers:{'X-Master-Key':cfg.apiKey,'X-Bin-Meta':false}
+    });
+    let bin=[];
+    if(getResp.ok){
+      const data=await getResp.json();
+      bin=Array.isArray(data)?data:(data.records||[]);
+    }
+    // Upsert by token
+    const idx=bin.findIndex(c=>c._token===record._token||String(c.id)===String(record.id));
+    if(idx>=0)bin[idx]=Object.assign({},bin[idx],record);
+    else bin.unshift(record);
+    // Write back
+    await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':cfg.apiKey},
+      body:JSON.stringify(bin)
+    });
+    console.log('Sync: pushed',record.name);
+  }catch(e){console.warn('Sync push failed:',e);}
+}
+
+// Called from renderDash — pulls all records from cloud and merges
+async function syncPullCandidates(){
+  const cfg=syncGetConfig();
+  if(!cfg||!cfg.apiKey||!cfg.binId)return false;
+  try{
+    const resp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest',{
+      headers:{'X-Master-Key':cfg.apiKey,'X-Bin-Meta':false}
+    });
+    if(!resp.ok)return false;
+    const data=await resp.json();
+    const cloud=Array.isArray(data)?data:(data.records||[]);
+    if(!cloud.length)return false;
+    // Merge cloud into local — cloud wins for Completed records
+    const local=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+    cloud.forEach(cr=>{
+      const li=local.findIndex(c=>c._token===cr._token||String(c.id)===String(cr.id));
+      if(li>=0){
+        // Cloud wins if it has a score and local doesn't
+        if(cr.status==='Completed'&&local[li].status!=='Completed')local[li]=Object.assign({},local[li],cr);
+      } else {
+        local.unshift(cr);
+      }
+    });
+    localStorage.setItem('vettiq_candidates',JSON.stringify(local));
+    candidates=local;
+    candidates.sort((a,b)=>parseCandDate(b.invited)-parseCandDate(a.invited));
+    return true;
+  }catch(e){console.warn('Sync pull failed:',e);return false;}
+}
+
+// Create a new bin on first setup
+async function syncCreateBin(apiKey){
+  const resp=await fetch('https://api.jsonbin.io/v3/b',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Master-Key':apiKey,'X-Bin-Name':'AssessYBS-Candidates','X-Bin-Private':true},
+    body:JSON.stringify([])
+  });
+  if(!resp.ok)throw new Error('Could not create bin. Check your API key.');
+  const data=await resp.json();
+  return data.metadata?.id||data.record?.id||data.id;
+}
+
+async function syncSetup(){
+  const keyEl=document.getElementById('sync-api-key');
+  const statusEl=document.getElementById('sync-status');
+  const key=(keyEl?.value||'').trim();
+  if(!key){if(statusEl){statusEl.textContent='Please enter your API key.';statusEl.style.color='var(--red)';}return;}
+  if(statusEl){statusEl.textContent='Connecting…';statusEl.style.color='var(--text-3)';}
+  try{
+    const cfg=syncGetConfig()||{};
+    let binId=cfg.binId;
+    if(!binId){
+      binId=await syncCreateBin(key);
+    }
+    localStorage.setItem('ybs_sync_cfg',JSON.stringify({apiKey:key,binId}));
+    if(statusEl){statusEl.textContent='✓ Connected! Bin ID: '+binId;statusEl.style.color='var(--green)';}
+    if(keyEl)keyEl.value='';
+    renderSyncStatus();
+  }catch(e){
+    if(statusEl){statusEl.textContent='Error: '+e.message;statusEl.style.color='var(--red)';}
+  }
+}
+
+function syncDisconnect(){
+  if(!confirm('Disconnect cloud sync? Local data is kept.'))return;
+  localStorage.removeItem('ybs_sync_cfg');
+  renderSyncStatus();
+}
+
+function renderSyncStatus(){
+  const el=document.getElementById('sync-status-card');if(!el)return;
+  const cfg=syncGetConfig();
+  if(cfg&&cfg.binId){
+    el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--green-s);border:1px solid var(--green-b);border-radius:var(--r);margin-bottom:12px;">'
+      +'<div><div style="font-size:13px;font-weight:600;color:var(--green);">✓ Cloud sync active</div>'
+      +'<div style="font-size:11px;color:var(--text-3);margin-top:2px;">Bin: '+cfg.binId+'</div></div>'
+      +'<button class="btn btn-ghost btn-sm" onclick="syncDisconnect()" style="font-size:12px;">Disconnect</button>'
+      +'</div>';
+  } else {
+    el.innerHTML='<div style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px;font-size:13px;color:var(--text-2);">Not connected — results stay in browser only.</div>';
+  }
+}
+
 /* INIT */
 // Belt-and-suspenders: persist all data on page unload (covers edge cases
 // where an in-flight mutation didn't call persist before the tab closed)
@@ -6482,6 +6803,8 @@ if(!isCandidateView){
       if(validPages.includes(h))showPage(h,document.querySelector('[data-page="'+h+'"]'));
     });
     showPage(lastPage,null);
+    // Pull latest candidates from cloud on startup
+    if(syncEnabled()){syncPullCandidates().then(function(ok){if(ok)renderDash();}).catch(function(){});}
   } else {
     // Not logged in — show login
     document.getElementById('login-screen').style.removeProperty('display');document.getElementById('login-screen').classList.remove('hidden');
