@@ -6669,10 +6669,18 @@ async function syncPullCandidates(){
 async function syncCreateBin(apiKey){
   const resp=await fetch('https://api.jsonbin.io/v3/b',{
     method:'POST',
-    headers:{'Content-Type':'application/json','X-Master-Key':apiKey,'X-Bin-Name':'AssessYBS-Candidates','X-Bin-Private':true},
+    headers:{
+      'Content-Type':'application/json',
+      'X-Master-Key':apiKey,
+      'X-Bin-Name':'AssessYBS-Candidates'
+    },
     body:JSON.stringify([])
   });
-  if(!resp.ok)throw new Error('Could not create bin. Check your API key.');
+  if(!resp.ok){
+    let errMsg='Could not create bin ('+resp.status+').';
+    try{const e=await resp.json();errMsg=e.message||errMsg;}catch(ex){}
+    throw new Error(errMsg);
+  }
   const data=await resp.json();
   return data.metadata?.id||data.record?.id||data.id;
 }
@@ -6694,7 +6702,7 @@ async function syncSetup(){
     if(keyEl)keyEl.value='';
     renderSyncStatus();
   }catch(e){
-    if(statusEl){statusEl.textContent='Error: '+e.message;statusEl.style.color='var(--red)';}
+    if(statusEl){statusEl.textContent='Error: '+e.message+' — Make sure you copied the Master Key (starts with $2b$...)';statusEl.style.color='var(--red)';}
   }
 }
 
