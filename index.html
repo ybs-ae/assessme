@@ -651,17 +651,30 @@ tbody tr:hover td{background:var(--surface-2);}
   .settings-shell{grid-template-columns:1fr;}
   .settings-nav{display:none;}
 }
-/* ── CANDIDATE MODE — hide all admin chrome ── */
+/* ── CANDIDATE LINK — hide all admin chrome immediately (before JS runs) ── */
+html.candidate-link #mobileNav,
+html.candidate-link .mobile-nav,
+html.candidate-link #admin-shell,
+html.candidate-link #login-screen,
+html.candidate-link .sidebar,
+html.candidate-link .topbar { display:none!important; }
+html.candidate-link body { background:var(--bg); }
+/* Also body class for belt-and-suspenders */
 body.candidate-mode #mobileNav,
 body.candidate-mode .mobile-nav,
 body.candidate-mode #admin-shell,
-body.candidate-mode #login-screen { display:none!important; }
-body.candidate-mode { background:var(--bg); }
+body.candidate-mode #login-screen,
+body.candidate-mode .sidebar,
+body.candidate-mode .topbar { display:none!important; }
 </style>
 <script>
 (function(){
   var search=window.location.search;
   var isCandidate=search.indexOf('assess=')!==-1||search.indexOf('interview=')!==-1||search.indexOf('enps=')!==-1;
+  // Add class to <html> IMMEDIATELY so CSS hides admin chrome before anything renders
+  if(isCandidate){
+    document.documentElement.classList.add('candidate-link');
+  }
   // If no credentials stored yet, clear any stale auth token so login always shows
   var hasCreds=false;
   try{hasCreds=!!localStorage.getItem('ybs_admin_creds');}catch(e){}
