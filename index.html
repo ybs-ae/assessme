@@ -2131,7 +2131,7 @@ function showPage(id,el){
   }
   if(id==='interview')renderInterviewPage();
   if(id==='settings'){
-    const dmEl=document.getElementById('set-modules-render');if(dmEl)renderModuleChips('set-modules-render',defaultModules,'toggleDefaultModule');renderSettings();setTimeout(loadApiKeyIntoSettings,50);try{const he=document.getElementById('set-hr-email');if(he)he.value=localStorage.getItem('ybs_hr_email')||'';}catch(e){}try{renderSyncStatus();}catch(e){}}
+    const dmEl=document.getElementById('set-modules-render');if(dmEl)renderModuleChips('set-modules-render',defaultModules,'toggleDefaultModule');renderSettings();setTimeout(()=>{loadApiKeyIntoSettings();try{const he=document.getElementById('set-hr-email');if(he)he.value=localStorage.getItem('ybs_hr_email')||'';}catch(e){}try{renderSyncStatus();}catch(e){}},50);}
   if(id==='stats')renderStats();
   if(id==='enps')renderEnps();
   // Mobile nav active state
@@ -6613,8 +6613,8 @@ async function syncPushCandidate(record){
   if(!cfg||!cfg.apiKey||!cfg.binId)return;
   try{
     // Fetch current bin content
-    const getResp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest',{
-      headers:{'X-Master-Key':cfg.apiKey,'X-Bin-Meta':false}
+    const getResp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest?meta=false',{
+      headers:{'X-Master-Key':cfg.apiKey}
     });
     let bin=[];
     if(getResp.ok){
@@ -6626,11 +6626,12 @@ async function syncPushCandidate(record){
     if(idx>=0)bin[idx]=Object.assign({},bin[idx],record);
     else bin.unshift(record);
     // Write back
-    await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId,{
+    const putResp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId,{
       method:'PUT',
       headers:{'Content-Type':'application/json','X-Master-Key':cfg.apiKey},
       body:JSON.stringify(bin)
     });
+    if(!putResp.ok)console.warn('Sync PUT failed:',putResp.status);
     console.log('Sync: pushed',record.name);
   }catch(e){console.warn('Sync push failed:',e);}
 }
@@ -6640,8 +6641,8 @@ async function syncPullCandidates(){
   const cfg=syncGetConfig();
   if(!cfg||!cfg.apiKey||!cfg.binId)return false;
   try{
-    const resp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest',{
-      headers:{'X-Master-Key':cfg.apiKey,'X-Bin-Meta':false}
+    const resp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest?meta=false',{
+      headers:{'X-Master-Key':cfg.apiKey}
     });
     if(!resp.ok)return false;
     const data=await resp.json();
@@ -6692,17 +6693,38 @@ async function syncSetup(){
   if(!key){if(statusEl){statusEl.textContent='Please enter your API key.';statusEl.style.color='var(--red)';}return;}
   if(statusEl){statusEl.textContent='Connecting…';statusEl.style.color='var(--text-3)';}
   try{
-    const cfg=syncGetConfig()||{};
-    let binId=cfg.binId;
-    if(!binId){
-      binId=await syncCreateBin(key);
+    if(statusEl){statusEl.textContent='Testing connection…';statusEl.style.color='var(--text-3)';}
+    // First test the key works with a simple read
+    const testResp=await fetch('https://api.jsonbin.io/v3/b',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Master-Key':key,'X-Bin-Name':'AssessYBS-Test'},
+      body:JSON.stringify({test:true})
+    });
+    if(!testResp.ok){
+      let errMsg='API key rejected ('+testResp.status+')';
+      try{const e=await testResp.json();errMsg=e.message||errMsg;}catch(ex){}
+      throw new Error(errMsg);
     }
+    const testData=await testResp.json();
+    const binId=testData.metadata?.id||testData.record?.id;
+    if(!binId)throw new Error('Could not get bin ID from response');
     localStorage.setItem('ybs_sync_cfg',JSON.stringify({apiKey:key,binId}));
-    if(statusEl){statusEl.textContent='✓ Connected! Bin ID: '+binId;statusEl.style.color='var(--green)';}
+    if(statusEl){statusEl.textContent='✓ Connected! Syncing candidates…';statusEl.style.color='var(--green)';}
     if(keyEl)keyEl.value='';
     renderSyncStatus();
+    // Push all existing candidates to the new bin
+    const allCands=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+    if(allCands.length){
+      await fetch('https://api.jsonbin.io/v3/b/'+binId,{
+        method:'PUT',
+        headers:{'Content-Type':'application/json','X-Master-Key':key},
+        body:JSON.stringify(allCands)
+      });
+    }
+    if(statusEl){statusEl.textContent='✓ Connected! '+allCands.length+' candidate(s) synced to cloud.';statusEl.style.color='var(--green)';}
   }catch(e){
-    if(statusEl){statusEl.textContent='Error: '+e.message+' — Make sure you copied the Master Key (starts with $2b$...)';statusEl.style.color='var(--red)';}
+    if(statusEl){statusEl.textContent='Error: '+e.message;statusEl.style.color='var(--red)';}
+    console.error('Sync setup error:',e);
   }
 }
 
