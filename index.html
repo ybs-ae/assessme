@@ -1850,18 +1850,10 @@ const ALL_TRAITS=[...TRAITS,...WB_TRAITS,...JOB_TRAITS];
 const TRAIT_COLORS=['#c8a84b','#0e6b5e','#5a3ea1','#4a7c59','#b53a3a'];
 const WB_DESC={Collaboration:'Teamwork and cooperative orientation',Accountability:'Ownership and reliable follow-through',Adaptability:'Flexibility and response to change',ConflictStyle:'How disagreements are handled',StressResilience:'Performance under pressure',FeedbackReceptivity:'Openness to critique and learning'};
 
-let candidates=[
-  {id:1,name:'Ji-soo Han',email:'jisoo@example.com',role:'Software Engineer',status:'Completed',invited:'1 April 2025 09:14',score:{big5:{Openness:78,Conscientiousness:85,Extraversion:60,Agreeableness:72,Neuroticism:40,Collaboration:80,Accountability:88,Adaptability:74,ConflictStyle:70,StressResilience:76,FeedbackReceptivity:82,ProblemSolving:82,LongTermCommitment:88,DataDriven:76,Initiative:80,CommunicationQuality:74},cognitive:82,typing:{wpm:87,accuracy:96}},timing:{personality:'14m 22s',cognitive:'18m 05s',typing:'3m 41s',total:'36m 08s'},verdict:'Pass',notes:'Strong analytical thinking. High conscientiousness.'},
-  {id:2,name:'Min-jun Park',email:'minjun@example.com',role:'Product Manager',status:'Completed',invited:'3 April 2025 14:32',score:{big5:{Openness:88,Conscientiousness:70,Extraversion:85,Agreeableness:80,Neuroticism:35,Collaboration:84,Accountability:72,Adaptability:86,ConflictStyle:76,StressResilience:80,FeedbackReceptivity:78,ProblemSolving:74,LongTermCommitment:66,DataDriven:62,Initiative:84,CommunicationQuality:88},cognitive:74,typing:{wpm:64,accuracy:91}},timing:{personality:'16m 48s',cognitive:'22m 30s',typing:'5m 12s',total:'44m 30s'},verdict:'Pass',notes:'High openness and extraversion.'},
-  {id:3,name:'Ye-jin Choi',email:'yejin@example.com',role:'Designer',status:'Completed',invited:'4 April 2025 11:05',score:{big5:{Openness:94,Conscientiousness:62,Extraversion:55,Agreeableness:75,Neuroticism:55,Collaboration:76,Accountability:60,Adaptability:80,ConflictStyle:64,StressResilience:58,FeedbackReceptivity:70,ProblemSolving:66,LongTermCommitment:58,DataDriven:52,Initiative:72,CommunicationQuality:70},cognitive:68,typing:{wpm:58,accuracy:88}},timing:{personality:'19m 05s',cognitive:'24m 17s',typing:'6m 02s',total:'49m 24s'},verdict:'Consider',notes:'Exceptional openness. Conscientiousness below average.'},
-  {id:4,name:'Dong-hyun Kwon',email:'donghy@example.com',role:'Data Analyst',status:'Completed',invited:'5 April 2025 16:48',score:{big5:{Openness:70,Conscientiousness:90,Extraversion:45,Agreeableness:65,Neuroticism:28,Collaboration:72,Accountability:92,Adaptability:68,ConflictStyle:72,StressResilience:84,FeedbackReceptivity:88,ProblemSolving:90,LongTermCommitment:86,DataDriven:94,Initiative:78,CommunicationQuality:76},cognitive:91,typing:{wpm:95,accuracy:98}},timing:{personality:'12m 10s',cognitive:'15m 44s',typing:'2m 58s',total:'30m 52s'},verdict:'Pass',notes:'Exceptional cognitive score and conscientiousness.'},
-  {id:5,name:'Seo-yeon Lim',email:'seoyeon@example.com',role:'Marketing Lead',status:'Completed',invited:'6 April 2025 10:22',score:{big5:{Openness:80,Conscientiousness:55,Extraversion:90,Agreeableness:85,Neuroticism:50,Collaboration:88,Accountability:56,Adaptability:76,ConflictStyle:68,StressResilience:62,FeedbackReceptivity:74,ProblemSolving:60,LongTermCommitment:54,DataDriven:50,Initiative:76,CommunicationQuality:84},cognitive:62,typing:{wpm:72,accuracy:93}},timing:{personality:'17m 33s',cognitive:'26m 11s',typing:'4m 20s',total:'48m 04s'},verdict:'Consider',notes:'High extraversion. Cognitive below median.'},
-  {id:6,name:'Hyun-woo Shin',email:'hyunwoo@example.com',role:'Software Engineer',status:'Completed',invited:'7 April 2025 08:57',score:{big5:{Openness:55,Conscientiousness:48,Extraversion:40,Agreeableness:50,Neuroticism:72,Collaboration:44,Accountability:46,Adaptability:50,ConflictStyle:40,StressResilience:36,FeedbackReceptivity:52,ProblemSolving:52,LongTermCommitment:44,DataDriven:48,Initiative:42,CommunicationQuality:50},cognitive:58,typing:{wpm:51,accuracy:85}},timing:{personality:'21m 40s',cognitive:'29m 55s',typing:'7m 12s',total:'58m 47s'},verdict:'Reject',notes:'High neuroticism. Below-average across cognitive and conscientiousness.'},
-  {id:7,name:'Na-yeon Jung',email:'nayeon@example.com',role:'Product Manager',status:'Invited',invited:'10 April 2025 15:30',score:null,timing:null,verdict:'Pending',notes:''},
-  {id:8,name:'Tae-yang Kim',email:'taeyang@example.com',role:'Designer',status:'In Progress',invited:'11 April 2025 09:45',score:null,timing:null,verdict:'Pending',notes:''},
-];
+// Candidates loaded from Supabase or localStorage — never hardcoded
+let candidates=[];
 
-let invites=[...candidates.map(c=>({name:c.name,email:c.email,role:c.role,status:c.status,date:c.invited}))];
+let invites=[];
 
 let modules=[
   {key:'big5',label:'Personality',icon:'🧠',desc:'80-question Big Five + Workplace Behaviour',time:'~15 min',on:true},
@@ -6717,15 +6709,17 @@ async function syncPullCandidates(){
     const rows=await resp.json();
     if(!Array.isArray(rows)||!rows.length)return false;
     const cloud=rows.map(r=>{try{return JSON.parse(r.data);}catch(e){return null;}}).filter(Boolean);
+    // Supabase IS the source of truth — replace local entirely
+    // But keep any local-only records that aren't in cloud yet (just sent, not yet pushed)
     const local=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
-    cloud.forEach(cr=>{
-      const li=local.findIndex(c=>c._token===cr._token||String(c.id)===String(cr.id));
-      if(li>=0){if(cr.status==='Completed')local[li]=Object.assign({},local[li],cr);}
-      else local.unshift(cr);
+    const merged=[...cloud];
+    local.forEach(lr=>{
+      const inCloud=cloud.find(c=>c._token===lr._token||String(c.id)===String(lr.id));
+      if(!inCloud)merged.push(lr); // local-only record, keep it
     });
-    localStorage.setItem('vettiq_candidates',JSON.stringify(local));
-    candidates=local;
-    candidates.sort((a,b)=>parseCandDate(b.invited)-parseCandDate(a.invited));
+    merged.sort((a,b)=>parseCandDate(b.invited)-parseCandDate(a.invited));
+    localStorage.setItem('vettiq_candidates',JSON.stringify(merged));
+    candidates=merged;
     return true;
   }catch(e){console.warn('Sync pull failed:',e);return false;}
 }
@@ -6867,7 +6861,24 @@ if(!isCandidateView){
   if(authed){
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('admin-shell').style.display='flex';
-    // Auto-pull from Supabase every 30s if connected
+    // Load candidates: Supabase first, fallback to localStorage
+    (function initCandidates(){
+      // Always load from localStorage first (instant)
+      try{
+        const _ls=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+        if(_ls.length){
+          candidates=_ls;
+          candidates.sort(function(a,b){return parseCandDate(b.invited)-parseCandDate(a.invited);});
+        }
+      }catch(e){}
+      // Then pull from Supabase (authoritative source) and merge
+      if(syncEnabled()){
+        syncPullCandidates().then(function(ok){
+          if(ok)renderDash();
+        }).catch(function(){});
+      }
+    })();
+    // Auto-pull from Supabase every 30s
     setInterval(function(){
       if(syncEnabled()){
         syncPullCandidates().then(function(ok){if(ok)renderDash();}).catch(function(){});
