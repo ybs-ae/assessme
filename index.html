@@ -2507,42 +2507,25 @@ function quickSendInvite(){
   const co=document.getElementById('set-company')?.value||'Assess YBS';
   const intProfileForEmail=hasVideo?interviewProfiles.find(p=>p.token===candidates[candidates.length-1]?._interviewToken):null;
   const intLinkForEmail=intProfileForEmail?(window.location.href.split('?')[0].split('#')[0]+'?interview='+intProfileForEmail.token):'';
-  const body='Hi '+name+',\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nYour unique link (includes all steps):\n'+link+'\n\nPlease complete within 7 days. The link is unique to you.\n\nThank you,\n'+co+' Team';
-  const gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Assessment invitation - '+role+' | '+co)+'&body='+encodeURIComponent(body);
-  // Try to shorten the link via TinyURL API
-  (async function(){
-    let finalLink=link;
-    try{
-      const r=await fetch('https://tinyurl.com/api-create.php?url='+encodeURIComponent(link));
-      if(r.ok){const t=await r.text();if(t.startsWith('https://'))finalLink=t.trim();}
-    }catch(e){}
-    const shortBody='Hi,\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nClick the link below to begin:\n\n'+finalLink+'\n\nPlease complete within 7 days.\n\nThank you,\n'+co+' Team';
-    const shortGmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Assessment invitation - '+role+' | '+co)+'&body='+encodeURIComponent(shortBody);
-    window.open(shortGmailUrl,'_blank');
-  })();
-  if(msgEl){
-    msgEl.innerHTML='';
-    const ok=document.createElement('span');
-    ok.style.cssText='color:var(--green);font-weight:600;font-size:13px;white-space:nowrap;';
-    ok.textContent='✓ Test sent';
-    const sep=document.createElement('span');
-    sep.style.cssText='color:var(--border-2);margin:0 4px;';sep.textContent='·';
-    const lbl=document.createElement('span');
-    lbl.style.cssText='font-size:11px;color:var(--text-3);';
-    lbl.textContent='Gmail opened for '+email;
-    const copyBtn=document.createElement('button');
-    copyBtn.textContent='Copy link';
-    copyBtn.style.cssText='background:var(--surface);border:1px solid var(--border);color:var(--text-2);border-radius:var(--r-sm);padding:2px 9px;font-size:11px;cursor:pointer;';
-    copyBtn.onclick=function(){navigator.clipboard.writeText(link).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy link',2000);};
-    const resend=document.createElement('button');
-    resend.textContent='Resend via Gmail';
-    resend.style.cssText='background:var(--surface);border:1px solid var(--border);color:var(--text-2);border-radius:var(--r-sm);padding:2px 9px;font-size:11px;cursor:pointer;';
-    resend.onclick=function(){window.open(gmailUrl,'_blank');};
-    msgEl.appendChild(ok);msgEl.appendChild(sep);msgEl.appendChild(lbl);
-    msgEl.appendChild(copyBtn);msgEl.appendChild(resend);
-    setTimeout(()=>msgEl.innerHTML='',60000);
-  }
-  renderDash();
+  // Use built-in Supabase shortener
+  shortenLink(link).then(function(finalLink){
+    const body='Hi,\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nClick the link below to begin:\n\n'+finalLink+'\n\nPlease complete within 7 days. This link is unique to you.\n\nThank you,\n'+co+' Team';
+    const gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Assessment invitation - '+role+' | '+co)+'&body='+encodeURIComponent(body);
+    window.open(gmailUrl,'_blank');
+    if(msgEl){
+      msgEl.innerHTML='';
+      const ok=document.createElement('span');
+      ok.style.cssText='color:var(--green);font-weight:600;font-size:13px;white-space:nowrap;';
+      ok.textContent='✓ Invite sent';
+      const copyBtn=document.createElement('button');
+      copyBtn.textContent='Copy link';
+      copyBtn.style.cssText='background:var(--surface);border:1px solid var(--border);color:var(--text-2);border-radius:var(--r-sm);padding:2px 9px;font-size:11px;cursor:pointer;margin-left:8px;';
+      copyBtn.onclick=function(){navigator.clipboard.writeText(finalLink).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy link',2000);};
+      msgEl.appendChild(ok);msgEl.appendChild(copyBtn);
+      setTimeout(()=>msgEl.innerHTML='',60000);
+    }
+    renderDash();
+  });
 }
 
 function openInviteModal(){
@@ -3003,6 +2986,7 @@ function persistCandidates(){
 }
 function persistPositions(){
   try{localStorage.setItem('ybs_positions',JSON.stringify(positions));localStorage.setItem('ybs_next_pos_id',String(nextPosId));}catch(e){}
+  syncSaveConfig('positions',positions).catch(()=>{});
 }
 
 // Called from candidate-side pages to push status updates back to admin data
@@ -6626,6 +6610,46 @@ function saveCredentials(){
 }
 
 /* ═══════════════════════════════════════════
+   APP CONFIG SYNC — positions, settings across devices
+═══════════════════════════════════════════ */
+async function syncSaveConfig(key,value){
+  if(!syncEnabled())return;
+  try{
+    await fetch(_supaUrl('app_config'),{
+      method:'POST',
+      headers:{..._supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({key,value:JSON.stringify(value),updated_at:new Date().toISOString()})
+    });
+  }catch(e){console.warn('Config save failed:',e);}
+}
+
+async function syncLoadConfig(key){
+  if(!syncEnabled())return null;
+  try{
+    const r=await fetch(_supaUrl('app_config?key=eq.'+key+'&select=value&limit=1'),{headers:_supaHeaders()});
+    if(!r.ok)return null;
+    const rows=await r.json();
+    if(rows&&rows[0])return JSON.parse(rows[0].value);
+  }catch(e){}
+  return null;
+}
+
+async function syncLoadAllConfig(){
+  if(!syncEnabled())return;
+  try{
+    // Load positions
+    const pos=await syncLoadConfig('positions');
+    if(pos&&pos.length){positions=pos;nextPosId=Math.max(...pos.map(p=>p.id||0))+1;persistPositions();}
+    // Load company name
+    const company=await syncLoadConfig('company');
+    if(company){const el=document.getElementById('set-company');if(el)el.value=company;}
+    // Load HR email
+    const hrEmail=await syncLoadConfig('hr_email');
+    if(hrEmail){localStorage.setItem('ybs_hr_email',hrEmail);const el=document.getElementById('set-hr-email');if(el)el.value=hrEmail;}
+  }catch(e){console.warn('Config load failed:',e);}
+}
+
+/* ═══════════════════════════════════════════
    LINK SHORTENER
    Stores full links in Supabase `links` table.
    Short link: ?r=ABC123
@@ -6861,21 +6885,24 @@ if(!isCandidateView){
   if(authed){
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('admin-shell').style.display='flex';
-    // Load candidates: Supabase first, fallback to localStorage
-    (function initCandidates(){
-      // Always load from localStorage first (instant)
+    // Load candidates + config from Supabase (authoritative) then render
+    (function initData(){
+      // Load from localStorage first for instant display
       try{
         const _ls=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
-        if(_ls.length){
-          candidates=_ls;
-          candidates.sort(function(a,b){return parseCandDate(b.invited)-parseCandDate(a.invited);});
-        }
+        if(_ls.length){candidates=_ls;candidates.sort(function(a,b){return parseCandDate(b.invited)-parseCandDate(a.invited);});}
       }catch(e){}
-      // Then pull from Supabase (authoritative source) and merge
       if(syncEnabled()){
-        syncPullCandidates().then(function(ok){
-          if(ok)renderDash();
-        }).catch(function(){});
+        // Pull candidates + config in parallel
+        Promise.all([
+          syncPullCandidates(),
+          syncLoadAllConfig()
+        ]).then(function(results){
+          if(results[0])renderDash();
+          else renderDash();
+        }).catch(function(){renderDash();});
+      } else {
+        renderDash();
       }
     })();
     // Auto-pull from Supabase every 30s
