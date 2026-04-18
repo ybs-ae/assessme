@@ -694,9 +694,17 @@ body.candidate-mode .topbar { display:none!important; }
   // Handle ?r= short link — look up full URL in Supabase and redirect
   if(search.indexOf('r=')!==-1&&search.indexOf('assess=')===-1){
     var shortCode=new URLSearchParams(search).get('r');
+    var sbRaw=new URLSearchParams(search).get('sb');
     if(shortCode){
-      var cfg=null;try{cfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){}
+      // Get Supabase config: from URL param first, then localStorage
+      var cfg=null;
+      if(sbRaw){
+        try{var parts=atob(sbRaw).split('|');if(parts.length>=2)cfg={url:parts[0],key:parts.slice(1).join('|')};}catch(e){}
+      }
+      if(!cfg){try{cfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){}}
       if(cfg&&cfg.url&&cfg.key){
+        // Save config to localStorage for future use
+        try{localStorage.setItem('ybs_sync_cfg',JSON.stringify(cfg));}catch(e){}
         fetch(cfg.url.replace(/\/$/,'')+'/rest/v1/links?code=eq.'+shortCode+'&select=url&limit=1',{
           headers:{'apikey':cfg.key,'Authorization':'Bearer '+cfg.key}
         }).then(function(r){return r.json();}).then(function(rows){
@@ -707,7 +715,10 @@ body.candidate-mode .topbar { display:none!important; }
       }
     }
   }
-  var isCandidate=search.indexOf('assess=')!==-1||search.indexOf('interview=')!==-1||search.indexOf('enps=')!==-1;
+  var isCandidate=search.indexOf('assess=')!==-1
+    ||search.indexOf('interview=')!==-1
+    ||search.indexOf('enps=')!==-1
+    ||search.indexOf('r=')!==-1; // short links are always candidate links
   // Add class to <html> IMMEDIATELY so CSS hides admin chrome before anything renders
   if(isCandidate){
     document.documentElement.classList.add('candidate-link');
@@ -723,6 +734,17 @@ body.candidate-mode .topbar { display:none!important; }
     document.addEventListener('DOMContentLoaded',function(){
       var ls=document.getElementById('login-screen');
       if(ls)ls.classList.add('hidden');
+      // For short links: show a loading screen while we redirect
+      if(search.indexOf('r=')!==-1&&search.indexOf('assess=')===-1){
+        var body=document.body;
+        if(body){
+          body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Geist,sans-serif;flex-direction:column;gap:12px;">'
+            +'<div style="width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#111;border-radius:50%;animation:spin 0.8s linear infinite;"></div>'
+            +'<div style="font-size:14px;color:#555;">Loading your assessment…</div>'
+            +'<style>@keyframes spin{to{transform:rotate(360deg);}}</style>'
+            +'</div>';
+        }
+      }
     });
   }
 })();
@@ -6687,7 +6709,10 @@ async function shortenLink(fullUrl){
   if(!syncEnabled())return fullUrl; // fallback to full link
   const code=_makeShortCode();
   const base=window.location.href.split('?')[0].split('#')[0];
-  const shortUrl=base+'?r='+code;
+  // Include sb= in short link so candidate device can do the lookup
+  const cfg=syncGetConfig();
+  const sbParam=cfg?'&sb='+btoa(cfg.url+'|'+cfg.key):'';
+  const shortUrl=base+'?r='+code+sbParam;
   try{
     await fetch(_supaUrl('links'),{
       method:'POST',
