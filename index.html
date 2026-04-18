@@ -670,6 +670,27 @@ body.candidate-mode .topbar { display:none!important; }
 <script>
 (function(){
   var search=window.location.search;
+  // Handle ?import= — auto-import candidate results and redirect to dashboard
+  if(search.indexOf('import=')!==-1){
+    try{
+      var b64=new URLSearchParams(search).get('import');
+      if(b64){
+        var json=decodeURIComponent(escape(atob(b64)));
+        var data=JSON.parse(json);
+        if(data&&data._assessExport){
+          delete data._assessExport;
+          var existing=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+          var idx=existing.findIndex(function(c){return c._token===data._token||String(c.id)===String(data.id);});
+          if(idx>=0){Object.assign(existing[idx],data);existing[idx].status='Completed';}
+          else existing.unshift(data);
+          localStorage.setItem('vettiq_candidates',JSON.stringify(existing));
+          // Redirect to dashboard (strip ?import= from URL)
+          window.location.replace(window.location.href.split('?')[0]+'#dashboard');
+          return;
+        }
+      }
+    }catch(e){console.error('Import error:',e);}
+  }
   var isCandidate=search.indexOf('assess=')!==-1||search.indexOf('interview=')!==-1||search.indexOf('enps=')!==-1;
   // Add class to <html> IMMEDIATELY so CSS hides admin chrome before anything renders
   if(isCandidate){
@@ -1118,18 +1139,22 @@ body.candidate-mode .topbar { display:none!important; }
       </div>
       <div class="settings-section" id="stab-sync">
         <div class="settings-section-title">Cloud sync</div>
-        <div class="settings-section-sub">Sync candidate results across devices automatically. Uses <strong>JSONBin.io</strong> (free).</div>
+        <div class="settings-section-sub">Sync candidate results across all devices in real time. Uses <strong>Supabase</strong> (free database).</div>
         <div class="settings-row" style="margin-top:12px;">
           <div id="sync-status-card"></div>
-          <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Setup</div>
-          <ol style="font-size:13px;color:var(--text-2);line-height:2;margin:0 0 14px 16px;">
-            <li>Go to <a href="https://jsonbin.io" target="_blank" style="color:var(--accent);">jsonbin.io</a> → Sign up free</li>
-            <li>Click your profile → <strong>API Keys</strong> → copy your <strong>Master Key</strong></li>
-            <li>Paste it below and click Connect</li>
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Setup (3 minutes, free)</div>
+          <ol style="font-size:13px;color:var(--text-2);line-height:2;margin:0 0 16px 16px;">
+            <li>Go to <a href="https://supabase.com" target="_blank" style="color:var(--accent);">supabase.com</a> → Sign up free</li>
+            <li>Click <strong>New project</strong> → name it → Create</li>
+            <li>Go to <strong>Settings → API</strong> → copy the <strong>Project URL</strong> and <strong>anon public key</strong></li>
+            <li>Paste both below and click Connect</li>
           </ol>
-          <div style="display:flex;gap:8px;max-width:500px;margin-bottom:8px;">
-            <input type="password" id="sync-api-key" placeholder="Paste your JSONBin Master Key..." style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;"/>
-            <button class="btn btn-primary btn-sm" onclick="syncSetup()" style="white-space:nowrap;">Connect</button>
+          <div style="display:flex;flex-direction:column;gap:8px;max-width:500px;margin-bottom:8px;">
+            <input type="text" id="sync-url" placeholder="Project URL (https://xxxx.supabase.co)" style="font-family:'Geist Mono',monospace;font-size:12px;"/>
+            <div style="display:flex;gap:8px;">
+              <input type="password" id="sync-api-key" placeholder="Anon public key (eyJ...)" style="flex:1;font-family:'Geist Mono',monospace;font-size:12px;"/>
+              <button class="btn btn-primary btn-sm" onclick="syncSetup()" style="white-space:nowrap;">Connect</button>
+            </div>
           </div>
           <div id="sync-status" style="font-size:13px;min-height:18px;"></div>
         </div>
@@ -5608,32 +5633,6 @@ function cvSubmitTyping(){
   cvState.rawAnswers={...cvState.b5Answers};
   cvState.step=4;cvRender();
 }
-function _buildShareSection(){
-  const div=document.createElement('div');
-  div.style.cssText='background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px;';
-  const qrWrap=document.createElement('div');
-  qrWrap.id='cv-qr-container';
-  qrWrap.style.cssText='display:flex;justify-content:center;margin-bottom:16px;';
-  qrWrap.innerHTML='<div style="font-size:12px;color:#999;padding:20px;">Generating QR code…</div>';
-  const title=document.createElement('div');
-  title.style.cssText='font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;';
-  title.textContent='Show this QR code to HR';
-  const sub=document.createElement('div');
-  sub.style.cssText='font-size:12px;color:var(--text-3);margin-bottom:16px;';
-  sub.textContent='HR scans it with their phone, or clicks Import results in the admin dashboard';
-  const openBtn=document.createElement('button');
-  openBtn.id='cv-open-btn';
-  openBtn.style.cssText='height:40px;width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;font-family:Geist,sans-serif;margin-bottom:8px;';
-  openBtn.textContent='Open results link (tap & share)';
-  const copyBtn=document.createElement('button');
-  copyBtn.id='cv-copy-btn';
-  copyBtn.style.cssText='height:40px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;font-family:Geist,sans-serif;color:var(--text-2);';
-  copyBtn.textContent='Copy results link';
-  div.appendChild(title);div.appendChild(sub);div.appendChild(qrWrap);
-  div.appendChild(openBtn);div.appendChild(copyBtn);
-  return div;
-}
-
 function cvDone(){
   // ── 1. Compute scores ──────────────────────────────────────────
   const allScores=computeAllScores(cvState.b5Answers||{});
@@ -5694,7 +5693,7 @@ function cvDone(){
     +'<div style="font-size:12px;color:var(--text-3);">Results are confidential and for HR review only.</div>'
     +'</div>';
 
-  // ── 6. If NO cloud sync: add QR share section ─────────────────
+  // ── 6. If NO cloud sync: show one-tap share button ──────────
   if(!syncEnabled()){
     try{
       const payload=JSON.stringify({
@@ -5708,43 +5707,33 @@ function cvDone(){
       });
       const b64=btoa(unescape(encodeURIComponent(payload)));
       const importUrl=window.location.href.split('?')[0].split('#')[0]+'?import='+b64;
+      const hrEmail=localStorage.getItem('ybs_hr_email')||'';
 
-      const shareDiv=document.createElement('div');
-      shareDiv.style.cssText='background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:20px;margin:16px auto 0;max-width:400px;';
+      const note=document.createElement('div');
+      note.style.cssText='margin-top:20px;padding:16px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;text-align:left;';
+      note.innerHTML='<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">One more step</div>'
+        +'<div style="font-size:12px;color:var(--text-3);margin-bottom:12px;line-height:1.6;">Your results are saved on this device. Tap the button below to send them to HR so they appear in the system.</div>';
       
-      const qrDiv=document.createElement('div');
-      qrDiv.style.cssText='display:flex;justify-content:center;margin:12px 0;';
-      const img=document.createElement('img');
-      img.src='https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data='+encodeURIComponent(importUrl);
-      img.width=180;img.height=180;img.alt='QR Code';
-      img.style.cssText='border-radius:8px;border:1px solid #ddd;';
-      img.onerror=function(){qrDiv.style.display='none';};
-      qrDiv.appendChild(img);
-
-      const title=document.createElement('p');
-      title.style.cssText='font-size:13px;font-weight:600;margin:0 0 4px;color:var(--text);';
-      title.textContent='Show this screen to HR';
-      const sub=document.createElement('p');
-      sub.style.cssText='font-size:12px;color:var(--text-3);margin:0 0 12px;';
-      sub.textContent='HR scans the QR code, or tap the button below to share the link';
-
-      const copyBtn=document.createElement('button');
-      copyBtn.textContent='Copy results link';
-      copyBtn.style.cssText='width:100%;height:40px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
-      copyBtn.onclick=function(){
-        navigator.clipboard.writeText(importUrl).then(()=>{
-          copyBtn.textContent='✓ Copied!';
-          setTimeout(()=>{copyBtn.textContent='Copy results link';},3000);
-        }).catch(()=>{prompt('Copy this link and send to HR:',importUrl);});
+      const btn=document.createElement('button');
+      btn.style.cssText='width:100%;height:42px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
+      btn.textContent=hrEmail?'Send results to HR':'Share results link';
+      btn.onclick=function(){
+        if(hrEmail){
+          const subj=encodeURIComponent('Assessment Results — '+cvState.name);
+          const body=encodeURIComponent('Hi,\n\nHere are my assessment results. Click the link below to import them:\n\n'+importUrl+'\n\nThank you,\n'+cvState.name);
+          window.open('mailto:'+hrEmail+'?subject='+subj+'&body='+body);
+        } else if(navigator.share){
+          navigator.share({title:'Assessment Results',text:'Click to import my assessment results',url:importUrl}).catch(()=>{});
+        } else {
+          navigator.clipboard.writeText(importUrl).then(()=>{
+            btn.textContent='✓ Link copied — send to HR!';
+            setTimeout(()=>{btn.textContent='Share results link';},4000);
+          }).catch(()=>{prompt('Copy this link and send to HR:',importUrl);});
+        }
       };
-
-      shareDiv.appendChild(title);
-      shareDiv.appendChild(sub);
-      shareDiv.appendChild(qrDiv);
-      shareDiv.appendChild(copyBtn);
-
+      note.appendChild(btn);
       const card=bodyEl.querySelector('.cv-card');
-      if(card)card.appendChild(shareDiv);
+      if(card)card.appendChild(note);
     }catch(e){console.error('Share section error:',e);}
   }
 }
@@ -6630,70 +6619,64 @@ function saveCredentials(){
 }
 
 /* ═══════════════════════════════════════════
-   CLOUD SYNC — JSONBin.io
-   Candidate results are pushed to a cloud bin when submitted.
-   Admin dashboard pulls from cloud on load, merging with local.
-   Setup: Settings → Sync → enter your JSONBin API key + Bin ID.
+   CLOUD SYNC — Supabase
+   Real-time database sync across all devices.
+   Candidate submits → saved to Supabase → admin sees instantly.
 ═══════════════════════════════════════════ */
+const SUPA_TABLE='candidates';
+
 function syncGetConfig(){
   try{return JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){return null;}
 }
 function syncEnabled(){
   const cfg=syncGetConfig();
-  return !!(cfg&&cfg.apiKey&&cfg.binId);
+  return !!(cfg&&cfg.url&&cfg.key);
+}
+function _supaHeaders(){
+  const cfg=syncGetConfig();
+  return{'Content-Type':'application/json','apikey':cfg.key,'Authorization':'Bearer '+cfg.key,'Prefer':'resolution=merge-duplicates'};
+}
+function _supaUrl(path){
+  const cfg=syncGetConfig();
+  return cfg.url.replace(/\/$/,'')+'/rest/v1/'+path;
 }
 
-// Called from cvDone — pushes one candidate record to the cloud bin
+// Push one candidate record to Supabase (upsert by token)
 async function syncPushCandidate(record){
-  const cfg=syncGetConfig();
-  if(!cfg||!cfg.apiKey||!cfg.binId)return;
+  if(!syncEnabled())return;
   try{
-    // Fetch current bin content
-    const getResp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest?meta=false',{
-      headers:{'X-Master-Key':cfg.apiKey}
+    const row={
+      token:record._token||String(record.id),
+      data:JSON.stringify(record),
+      name:record.name||'',
+      email:record.email||'',
+      status:record.status||'Invited',
+      updated_at:new Date().toISOString()
+    };
+    await fetch(_supaUrl(SUPA_TABLE),{
+      method:'POST',
+      headers:{..._supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify(row)
     });
-    let bin=[];
-    if(getResp.ok){
-      const data=await getResp.json();
-      bin=Array.isArray(data)?data:(data.records||[]);
-    }
-    // Upsert by token
-    const idx=bin.findIndex(c=>c._token===record._token||String(c.id)===String(record.id));
-    if(idx>=0)bin[idx]=Object.assign({},bin[idx],record);
-    else bin.unshift(record);
-    // Write back
-    const putResp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId,{
-      method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':cfg.apiKey},
-      body:JSON.stringify(bin)
-    });
-    if(!putResp.ok)console.warn('Sync PUT failed:',putResp.status);
-    console.log('Sync: pushed',record.name);
   }catch(e){console.warn('Sync push failed:',e);}
 }
 
-// Called from renderDash — pulls all records from cloud and merges
+// Pull all records from Supabase and merge into local
 async function syncPullCandidates(){
-  const cfg=syncGetConfig();
-  if(!cfg||!cfg.apiKey||!cfg.binId)return false;
+  if(!syncEnabled())return false;
   try{
-    const resp=await fetch('https://api.jsonbin.io/v3/b/'+cfg.binId+'/latest?meta=false',{
-      headers:{'X-Master-Key':cfg.apiKey}
+    const resp=await fetch(_supaUrl(SUPA_TABLE+'?select=data,updated_at&order=updated_at.desc'),{
+      headers:_supaHeaders()
     });
     if(!resp.ok)return false;
-    const data=await resp.json();
-    const cloud=Array.isArray(data)?data:(data.records||[]);
-    if(!cloud.length)return false;
-    // Merge cloud into local — cloud wins for Completed records
+    const rows=await resp.json();
+    if(!Array.isArray(rows)||!rows.length)return false;
+    const cloud=rows.map(r=>{try{return JSON.parse(r.data);}catch(e){return null;}}).filter(Boolean);
     const local=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
     cloud.forEach(cr=>{
       const li=local.findIndex(c=>c._token===cr._token||String(c.id)===String(cr.id));
-      if(li>=0){
-        // Cloud wins if it has a score and local doesn't
-        if(cr.status==='Completed'&&local[li].status!=='Completed')local[li]=Object.assign({},local[li],cr);
-      } else {
-        local.unshift(cr);
-      }
+      if(li>=0){if(cr.status==='Completed')local[li]=Object.assign({},local[li],cr);}
+      else local.unshift(cr);
     });
     localStorage.setItem('vettiq_candidates',JSON.stringify(local));
     candidates=local;
@@ -6702,62 +6685,38 @@ async function syncPullCandidates(){
   }catch(e){console.warn('Sync pull failed:',e);return false;}
 }
 
-// Create a new bin on first setup
-async function syncCreateBin(apiKey){
-  const resp=await fetch('https://api.jsonbin.io/v3/b',{
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'X-Master-Key':apiKey,
-      'X-Bin-Name':'AssessYBS-Candidates'
-    },
-    body:JSON.stringify([])
+// Create the candidates table via Supabase SQL if it doesn't exist
+async function syncCreateTable(url,key){
+  // Use Supabase's REST API to check if table exists by doing a simple select
+  const resp=await fetch(url.replace(/\/$/,'')+'/rest/v1/'+SUPA_TABLE+'?limit=1',{
+    headers:{'apikey':key,'Authorization':'Bearer '+key}
   });
-  if(!resp.ok){
-    let errMsg='Could not create bin ('+resp.status+').';
-    try{const e=await resp.json();errMsg=e.message||errMsg;}catch(ex){}
-    throw new Error(errMsg);
+  if(resp.ok)return true; // table exists
+  if(resp.status===404||resp.status===400){
+    throw new Error('Table not found. Please create it first — see instructions below.');
   }
-  const data=await resp.json();
-  return data.metadata?.id||data.record?.id||data.id;
+  const err=await resp.json().catch(()=>({}));
+  throw new Error(err.message||'Cannot connect ('+resp.status+'). Check your URL and key.');
 }
 
 async function syncSetup(){
+  const urlEl=document.getElementById('sync-url');
   const keyEl=document.getElementById('sync-api-key');
   const statusEl=document.getElementById('sync-status');
+  const url=(urlEl?.value||'').trim().replace(/\/$/,'');
   const key=(keyEl?.value||'').trim();
-  if(!key){if(statusEl){statusEl.textContent='Please enter your API key.';statusEl.style.color='var(--red)';}return;}
+  if(!url||!key){if(statusEl){statusEl.textContent='Please enter both the Project URL and anon key.';statusEl.style.color='var(--red)';}return;}
+  if(!url.includes('supabase.co')){if(statusEl){statusEl.textContent='URL should look like https://xxxx.supabase.co';statusEl.style.color='var(--red)';}return;}
   if(statusEl){statusEl.textContent='Connecting…';statusEl.style.color='var(--text-3)';}
   try{
-    if(statusEl){statusEl.textContent='Testing connection…';statusEl.style.color='var(--text-3)';}
-    // First test the key works with a simple read
-    const testResp=await fetch('https://api.jsonbin.io/v3/b',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','X-Master-Key':key,'X-Bin-Name':'AssessYBS-Test'},
-      body:JSON.stringify({test:true})
-    });
-    if(!testResp.ok){
-      let errMsg='API key rejected ('+testResp.status+')';
-      try{const e=await testResp.json();errMsg=e.message||errMsg;}catch(ex){}
-      throw new Error(errMsg);
-    }
-    const testData=await testResp.json();
-    const binId=testData.metadata?.id||testData.record?.id;
-    if(!binId)throw new Error('Could not get bin ID from response');
-    localStorage.setItem('ybs_sync_cfg',JSON.stringify({apiKey:key,binId}));
-    if(statusEl){statusEl.textContent='✓ Connected! Syncing candidates…';statusEl.style.color='var(--green)';}
-    if(keyEl)keyEl.value='';
+    await syncCreateTable(url,key);
+    localStorage.setItem('ybs_sync_cfg',JSON.stringify({url,key}));
+    if(urlEl)urlEl.value='';if(keyEl)keyEl.value='';
     renderSyncStatus();
-    // Push all existing candidates to the new bin
+    // Push existing candidates to cloud
     const allCands=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
-    if(allCands.length){
-      await fetch('https://api.jsonbin.io/v3/b/'+binId,{
-        method:'PUT',
-        headers:{'Content-Type':'application/json','X-Master-Key':key},
-        body:JSON.stringify(allCands)
-      });
-    }
-    if(statusEl){statusEl.textContent='✓ Connected! '+allCands.length+' candidate(s) synced to cloud.';statusEl.style.color='var(--green)';}
+    for(const c of allCands){await syncPushCandidate(c);}
+    if(statusEl){statusEl.textContent='✓ Connected! '+allCands.length+' candidate(s) synced.';statusEl.style.color='var(--green)';}
   }catch(e){
     if(statusEl){statusEl.textContent='Error: '+e.message;statusEl.style.color='var(--red)';}
     console.error('Sync setup error:',e);
@@ -6773,12 +6732,13 @@ function syncDisconnect(){
 function renderSyncStatus(){
   const el=document.getElementById('sync-status-card');if(!el)return;
   const cfg=syncGetConfig();
-  if(cfg&&cfg.binId){
+  if(cfg&&cfg.url){
     el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--green-s);border:1px solid var(--green-b);border-radius:var(--r);margin-bottom:12px;">'
-      +'<div><div style="font-size:13px;font-weight:600;color:var(--green);">✓ Cloud sync active</div>'
-      +'<div style="font-size:11px;color:var(--text-3);margin-top:2px;">Bin: '+cfg.binId+'</div></div>'
+      +'<div><div style="font-size:13px;font-weight:600;color:var(--green);">✓ Supabase connected</div>'
+      +'<div style="font-size:11px;color:var(--text-3);margin-top:2px;">'+cfg.url+'</div></div>'
       +'<button class="btn btn-ghost btn-sm" onclick="syncDisconnect()" style="font-size:12px;">Disconnect</button>'
-      +'</div>';
+      +'</div>'
+      +'<div style="padding:10px 14px;background:var(--blue-s);border:1px solid var(--blue-b);border-radius:var(--r);margin-bottom:12px;font-size:12px;color:var(--blue);">Results sync automatically across all devices in real time.</div>';
   } else {
     el.innerHTML='<div style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px;font-size:13px;color:var(--text-2);">Not connected — results stay in browser only.</div>';
   }
