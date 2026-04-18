@@ -5605,14 +5605,11 @@ function cvDone(){
     try{window.dispatchEvent(new StorageEvent('storage',{key:'vettiq_candidates'}));}catch(e){}
   }catch(e){console.error('cvDone SAVE FAILED:',e);}
   candidates=liveCands;
-  // Push to cloud if sync is configured
+  // Push to cloud sync if configured (runs in background, doesn't block UI)
   const _savedRecord=liveCands[liveIdx>=0?liveIdx:0];
   if(_savedRecord)syncPushCandidate(_savedRecord).catch(()=>{});
   // Mark completed
   try{localStorage.setItem('cv_progress_'+cvState.token,JSON.stringify({step:4,completedAt:Date.now(),name:cvState.name,token:cvState.token}));}catch(e){console.error('cvDone error:',e);}
-  // Push to cloud sync if configured
-  const _syncRecord=liveCands[liveIdx>=0?liveIdx:0];
-  if(_syncRecord)syncPushCandidate(_syncRecord).catch(()=>{});
   // Check for linked video interview
   let linkedIntToken='';
   try{
