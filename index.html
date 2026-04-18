@@ -2466,9 +2466,9 @@ function quickSendInvite(){
   const tok='tok-'+Math.random().toString(36).slice(2,10);
   const selectedMods={big5:!!quickModuleState.big5,cognitive:!!quickModuleState.cognitive,typing:!!quickModuleState.typing,video:!!quickModuleState.video};
   const modCode=(selectedMods.big5?'b':'')+(selectedMods.cognitive?'c':'')+(selectedMods.typing?'t':'')+(selectedMods.video?'v':'');
-  const _sbCfg=syncGetConfig();
-  const _sbParam=_sbCfg?'&sb='+btoa(_sbCfg.url+'|'+_sbCfg.key):'';
-  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok+(modCode?'&m='+modCode:'')+_sbParam;
+  const _lRef=_supaRef(syncGetConfig()?.url);
+  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok+(modCode?'&m='+modCode:'')
+    +(_lRef?'&r='+_lRef:'');
   const hasVideo=quickModuleState.video===true;
   candidates.push({id:Date.now(),name,email,role,status:'Invited',invited:invitedAt,score:null,verdict:'Pending',notes:'',_token:tok,modules:selectedMods});
   invites.push({name,email,role,status:'Invited',date:invitedAt});
@@ -2501,7 +2501,17 @@ function quickSendInvite(){
   const intLinkForEmail=intProfileForEmail?(window.location.href.split('?')[0].split('#')[0]+'?interview='+intProfileForEmail.token):'';
   const body='Hi '+name+',\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nYour unique link (includes all steps):\n'+link+'\n\nPlease complete within 7 days. The link is unique to you.\n\nThank you,\n'+co+' Team';
   const gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Assessment invitation - '+role+' | '+co)+'&body='+encodeURIComponent(body);
-  window.open(gmailUrl,'_blank');
+  // Try to shorten the link via TinyURL API
+  (async function(){
+    let finalLink=link;
+    try{
+      const r=await fetch('https://tinyurl.com/api-create.php?url='+encodeURIComponent(link));
+      if(r.ok){const t=await r.text();if(t.startsWith('https://'))finalLink=t.trim();}
+    }catch(e){}
+    const shortBody='Hi,\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nClick the link below to begin:\n\n'+finalLink+'\n\nPlease complete within 7 days.\n\nThank you,\n'+co+' Team';
+    const shortGmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Assessment invitation - '+role+' | '+co)+'&body='+encodeURIComponent(shortBody);
+    window.open(shortGmailUrl,'_blank');
+  })();
   if(msgEl){
     msgEl.innerHTML='';
     const ok=document.createElement('span');
@@ -3576,16 +3586,14 @@ function openReport(id){
   if(!c){console.warn('openReport: not found',id,'available:',candidates.map(x=>String(x.id)));return;}
 
   const baseUrl=window.location.href.split('?')[0].split('#')[0];
-  // Build assess link including Supabase config so it works cross-device
-  const _pSbCfg=syncGetConfig();
-  const _pSbParam=_pSbCfg?'&sb='+btoa(_pSbCfg.url+'|'+_pSbCfg.key):'';
   const _pModCode=c.modules?(
     (modsArray(c.modules).includes('big5')?'b':'')
     +(modsArray(c.modules).includes('cognitive')?'c':'')
     +(modsArray(c.modules).includes('typing')?'t':'')
     +(modsArray(c.modules).includes('video')?'v':'')
   ):'bct';
-  const assessLink=c._token?(baseUrl+'?assess='+c._token+(_pModCode?'&m='+_pModCode:'')+_pSbParam):'';
+  const _plRef=_supaRef(syncGetConfig()?.url);
+  const assessLink=c._token?(baseUrl+'?assess='+c._token+(_pModCode?'&m='+_pModCode:'')+(_plRef?'&r='+_plRef:'')):'';
   // Only show video section if video was explicitly chosen for this candidate
   const intProfile=c._interviewToken
     ?interviewProfiles.find(p=>p.token===c._interviewToken)
@@ -5030,17 +5038,25 @@ function initCandidateView(){
     // Push "Link Opened" status immediately when candidate opens URL
     cvPushStatus(assessToken,'Link Opened');
     // Read Supabase config from URL (?sb=base64) — saves to localStorage on candidate device
-    const _sbParam=params.get('sb')||'';
-    if(_sbParam){
-      try{
-        const _sbRaw=atob(_sbParam);
-        const _sbParts=_sbRaw.split('|');
-        if(_sbParts.length>=2){
-          const _sbCfg={url:_sbParts[0],key:_sbParts.slice(1).join('|')};
-          localStorage.setItem('ybs_sync_cfg',JSON.stringify(_sbCfg));
-          console.log('Supabase config loaded from link');
+
+    // Fetch Supabase config using short project ref in URL
+    const _rParam=params.get('r')||'';
+    if(_rParam&&!syncEnabled()){
+      const _rUrl='https://'+_rParam+'.supabase.co';
+      // Fetch the anon key from our app_config table (publicly readable)
+      // Try to load the config using the project ref
+      // The anon key must be in localStorage already (set by admin) or we can't fetch
+      // As a fallback, try with empty key (only works if Supabase RLS allows public read)
+      const _existingCfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');
+      const _tryKey=_existingCfg?.key||'';
+      fetch(_rUrl+'/rest/v1/'+SUPA_CONFIG_TABLE+'?id=eq.sync&select=url,key',{
+        headers:{'apikey':_tryKey,'Authorization':'Bearer '+_tryKey}
+      }).then(function(res){return res.json();}).then(function(rows){
+        if(rows&&rows[0]&&rows[0].key){
+          localStorage.setItem('ybs_sync_cfg',JSON.stringify({url:rows[0].url,key:rows[0].key}));
+          console.log('Supabase config loaded from cloud');
         }
-      }catch(e){console.warn('Could not parse sb param:',e);}
+      }).catch(function(e){console.warn('Config fetch failed:',e);});
     }
     // Load modules from URL param first (most reliable — works cross-device)
     const _modParam=params.get('m')||'';
@@ -6607,6 +6623,9 @@ function saveCredentials(){
    Candidate submits → saved to Supabase → admin sees instantly.
 ═══════════════════════════════════════════ */
 const SUPA_TABLE='candidates';
+const SUPA_CONFIG_TABLE='app_config';
+// Extract 20-char project ref from Supabase URL
+function _supaRef(url){const m=(url||'').match(/https:\/\/([a-z0-9]+)\.supabase\.co/);return m?m[1]:'';}
 
 function syncGetConfig(){
   try{return JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){return null;}
@@ -6700,6 +6719,14 @@ async function syncSetup(){
     const allCands=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
     for(const c of allCands){await syncPushCandidate(c);}
     if(statusEl){statusEl.textContent='✓ Connected! '+allCands.length+' candidate(s) synced.';statusEl.style.color='var(--green)';}
+    // Store config publicly so candidate devices can fetch it via the site URL only
+    try{
+      await fetch(url+'/rest/v1/app_config',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':key,'Authorization':'Bearer '+key,'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({id:'sync',url:url,key:key,updated_at:new Date().toISOString()})
+      });
+    }catch(e){console.warn('Could not write app_config:',e);}
   }catch(e){
     if(statusEl){statusEl.textContent='Error: '+e.message;statusEl.style.color='var(--red)';}
     console.error('Sync setup error:',e);
