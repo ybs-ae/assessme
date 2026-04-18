@@ -5635,7 +5635,7 @@ function _buildShareSection(){
 }
 
 function cvDone(){
-  // Compute scores from whatever was answered
+  // ── 1. Compute scores ──────────────────────────────────────────
   const allScores=computeAllScores(cvState.b5Answers||{});
   const cogAnswers=cvState.cogAnswers||{};
   const cogPct=Math.round(COG_QUESTIONS.filter((q,i)=>cogAnswers[i]===q.ans).length/COG_QUESTIONS.length*100);
@@ -5648,149 +5648,104 @@ function cvDone(){
   const hadCog=Object.keys(cogAnswers).length>0;
   const hadTyp=(cvState.typingWpm||0)>0||(cvState.typingAcc||0)>0;
 
-  // Always read fresh from localStorage, update record, write back
+  // ── 2. Save to localStorage ────────────────────────────────────
   let liveCands=[];
-  try{liveCands=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');}catch(e){console.error('cvDone error:',e);}
+  try{liveCands=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');}catch(e){}
   const now=new Date();
   const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const ds=now.getDate()+' '+mo[now.getMonth()]+' '+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   const liveIdx=liveCands.findIndex(c=>c._token===cvState.token);
-  if(liveIdx>=0){
-    Object.assign(liveCands[liveIdx],{
-      status:'Completed',score:scoreData,
-      modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
-      timing:cvState.timing||{},rawAnswers:{...cvState.b5Answers},
-      name:cvState.name||liveCands[liveIdx].name||'Unknown',
-      email:cvState.email||liveCands[liveIdx].email||'',
-      gender:cvState.gender||liveCands[liveIdx].gender||'',
-      age:cvState.age||liveCands[liveIdx].age||'',
-      country:cvState.country||liveCands[liveIdx].country||''
-    });
-  } else {
-    liveCands.unshift({
-      id:Date.now(),name:cvState.name||'Unknown',email:cvState.email||'',
-      role:cvState.role||'General',status:'Completed',invited:ds,
-      score:scoreData,modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
-      timing:cvState.timing||{},rawAnswers:{...cvState.b5Answers},
-      verdict:'Pending',notes:'',_token:cvState.token,
-      gender:cvState.gender||'',age:cvState.age||'',country:cvState.country||''
-    });
-  }
-  try{
-    localStorage.setItem('vettiq_candidates',JSON.stringify(liveCands));
-    try{window.dispatchEvent(new StorageEvent('storage',{key:'vettiq_candidates'}));}catch(e){}
-  }catch(e){console.error('cvDone SAVE FAILED:',e);}
-  candidates=liveCands;
-  // Push to cloud sync if configured (runs in background, doesn't block UI)
-  const _savedRecord=liveCands[liveIdx>=0?liveIdx:0];
-  if(_savedRecord)syncPushCandidate(_savedRecord).catch(()=>{});
-  // Mark completed
-  try{localStorage.setItem('cv_progress_'+cvState.token,JSON.stringify({step:4,completedAt:Date.now(),name:cvState.name,token:cvState.token}));}catch(e){console.error('cvDone error:',e);}
-  // Check for linked video interview
-  let linkedIntToken='';
-  try{
-    const aMap=JSON.parse(localStorage.getItem('ybs_assess_int_map')||'{}');
-    linkedIntToken=aMap[cvState.token]||'';
-    if(!linkedIntToken){const cr=liveCands.find(c=>c._token===cvState.token);if(cr&&cr._interviewToken)linkedIntToken=cr._interviewToken;}
-  }catch(e){console.error('cvDone error:',e);}
-  const videoSection=linkedIntToken?`<div style="margin-top:28px;padding:24px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);text-align:center;"><div style="font-size:14px;font-weight:700;margin-bottom:8px;">Next step: Video Interview</div><div style="font-size:13px;color:var(--text-2);line-height:1.7;margin-bottom:20px;">You have also been invited to complete a short video interview.<br>It takes approximately 20–30 minutes.</div><button onclick="cvStartVideoInterview('${linkedIntToken}')" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;background:var(--text);color:#fff;border:none;border-radius:var(--r);font-size:14px;font-weight:600;cursor:pointer;font-family:'Geist',sans-serif;">Begin video interview</button></div>`:'';
-  // Build export payload for email delivery
-  const _exportPayload=JSON.stringify({
-    _assessExport:true,
-    id:liveCands[liveIdx>=0?liveIdx:0]?.id||Date.now(),
-    name:cvState.name,email:cvState.email,role:cvState.role,
-    status:'Completed',
-    invited:liveCands[liveIdx>=0?liveIdx:0]?.invited||ds,
-    score:scoreData,modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
+  const record={
+    status:'Completed',score:scoreData,
+    modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
     timing:cvState.timing||{},
-    gender:cvState.gender,age:cvState.age,country:cvState.country,
-    verdict:'Pending',notes:'',
-    _token:cvState.token,
-    _exportedAt:new Date().toISOString()
-  });
-
-  // Get HR email from admin settings (stored in localStorage)
-  const _hrEmail=(()=>{try{return localStorage.getItem('ybs_hr_email')||'';}catch(e){return'';}})();
-
-  function _cvSendByEmail(){
-    const subj=encodeURIComponent('Assessment Results — '+cvState.name+' ('+cvState.role+')');
-    const body=encodeURIComponent(
-      'Hi,\n\nPlease find my assessment results below.\n\n'
-      +'--- PASTE THE CODE BELOW INTO THE ADMIN IMPORT ---\n\n'
-      +_exportPayload
-      +'\n\n--- END ---\n\nThank you,\n'+cvState.name
-    );
-    window.location.href='mailto:'+_hrEmail+'?subject='+subj+'&body='+body;
+    name:cvState.name||'Unknown',
+    email:cvState.email||'',
+    gender:cvState.gender||'',
+    age:cvState.age||'',
+    country:cvState.country||''
+  };
+  if(liveIdx>=0){
+    Object.assign(liveCands[liveIdx],record);
+  } else {
+    liveCands.unshift(Object.assign({
+      id:Date.now(),role:cvState.role||'General',
+      invited:ds,verdict:'Pending',notes:'',_token:cvState.token
+    },record));
   }
+  try{localStorage.setItem('vettiq_candidates',JSON.stringify(liveCands));}catch(e){console.error('Save failed:',e);}
+  candidates=liveCands;
 
-  function _cvCopyCode(){
-    navigator.clipboard.writeText(_exportPayload).then(()=>{
-      const btn=document.getElementById('cv-copy-btn');
-      if(btn){btn.textContent='✓ Copied!';btn.style.background='var(--green)';setTimeout(()=>{btn.textContent='Copy result code';btn.style.background='';},3000);}
-    }).catch(()=>{
-      // Fallback
-      const ta=document.createElement('textarea');ta.value=_exportPayload;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
-      const btn=document.getElementById('cv-copy-btn');
-      if(btn){btn.textContent='✓ Copied!';btn.style.background='var(--green)';setTimeout(()=>{btn.textContent='Copy result code';btn.style.background='';},3000);}
-    });
-  }
+  // ── 3. Cloud sync (background, non-blocking) ───────────────────
+  const _rec=liveCands[liveIdx>=0?liveIdx:0];
+  if(_rec)syncPushCandidate(_rec).catch(()=>{});
 
-  // Build import URL — encode payload as base64 in URL param
-  // Admin opens this URL → app auto-imports the results
-  const _b64=btoa(unescape(encodeURIComponent(_exportPayload)));
-  const _baseUrl=window.location.href.split('?')[0].split('#')[0];
-  const _importUrl=_baseUrl+'?import='+_b64;
+  // ── 4. Mark progress as complete ──────────────────────────────
+  try{localStorage.setItem('cv_progress_'+cvState.token,JSON.stringify({step:4,completedAt:Date.now(),name:cvState.name,token:cvState.token}));}catch(e){}
 
-  // Only show share section if cloud sync is NOT configured
-  const _syncActive=syncEnabled();
-  const _syncShareSection='';// placeholder — real share section added via DOM after render
+  // ── 5. Show completion screen ──────────────────────────────────
+  const firstName=(cvState.name||'there').split(' ')[0];
+  const bodyEl=document.getElementById('cv-body');
+  bodyEl.innerHTML=
+    '<div class="cv-card" style="max-width:520px;margin:0 auto;text-align:center;">'
+    +'<div style="width:72px;height:72px;border-radius:50%;background:var(--green-s);border:1.5px solid var(--green-b);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg></div>'
+    +'<div style="font-size:26px;font-weight:700;margin-bottom:12px;">All done!</div>'
+    +'<div style="font-size:14px;color:var(--text-2);line-height:1.75;margin-bottom:16px;">Thank you, '+firstName+'.<br>Your results have been submitted to the hiring team.</div>'
+    +'<div style="font-size:12px;color:var(--text-3);">Results are confidential and for HR review only.</div>'
+    +'</div>';
 
-  const _bodyEl=document.getElementById('cv-body');
-  _bodyEl.innerHTML=`
-  <div class="cv-card" style="max-width:520px;margin:0 auto;text-align:center;">
-    <div style="width:72px;height:72px;border-radius:50%;background:var(--green-s);border:1.5px solid var(--green-b);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
-      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg>
-    </div>
-    <div style="font-size:26px;font-weight:700;margin-bottom:8px;">All done!</div>
-    <div style="font-size:14px;color:var(--text-2);line-height:1.75;margin-bottom:24px;">
-      Thank you, ${(cvState.name||'').split(' ')[0]}.<br>Your results have been submitted to the hiring team.
-    </div>
-    ${videoSection}
-    \${_syncShareSection}
-    <div style="font-size:12px;color:var(--text-3);">Results are confidential and for HR use only.</div>
-  </div>`;
+  // ── 6. If NO cloud sync: add QR share section ─────────────────
+  if(!syncEnabled()){
+    try{
+      const payload=JSON.stringify({
+        _assessExport:true,
+        id:_rec?.id||Date.now(),
+        name:cvState.name,email:cvState.email,role:cvState.role,
+        status:'Completed',invited:_rec?.invited||ds,
+        score:scoreData,modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
+        timing:cvState.timing||{},gender:cvState.gender,age:cvState.age,country:cvState.country,
+        verdict:'Pending',notes:'',_token:cvState.token
+      });
+      const b64=btoa(unescape(encodeURIComponent(payload)));
+      const importUrl=window.location.href.split('?')[0].split('#')[0]+'?import='+b64;
 
-  // Add share section and QR code via DOM if sync not active
-  if(!_syncActive){
-    setTimeout(()=>{
-      const cardEl=_bodyEl.querySelector('.cv-card');
-      const confidentialEl=_bodyEl.querySelector('[style*="confidential"]');
-      if(cardEl){
-        const shareDiv=_buildShareSection(_importUrl);
-        cardEl.insertBefore(shareDiv,confidentialEl||null);
-        // Wire buttons
-        const openBtn=document.getElementById('cv-open-btn');
-        if(openBtn)openBtn.onclick=function(){window.open(_importUrl,'_blank');};
-        const copyBtn=document.getElementById('cv-copy-btn');
-        if(copyBtn)copyBtn.onclick=function(){
-          navigator.clipboard.writeText(_importUrl).then(()=>{
-            copyBtn.textContent='✓ Link copied!';copyBtn.style.color='var(--green)';
-            setTimeout(()=>{copyBtn.textContent='Copy results link';copyBtn.style.color='';},3000);
-          }).catch(()=>{prompt('Copy this link:',_importUrl);});
-        };
-        // Generate QR code
-        const qrContainer=document.getElementById('cv-qr-container');
-        if(qrContainer){
-          const qrUrl='https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data='+encodeURIComponent(_importUrl);
-          const img=document.createElement('img');
-          img.src=qrUrl;img.width=180;img.height=180;
-          img.style.cssText='border-radius:8px;border:1px solid #e5e7eb;';
-          img.alt='QR Code';
-          img.onerror=function(){qrContainer.innerHTML='<div style="font-size:12px;color:#999;padding:10px;">QR unavailable — use the link below</div>';};
-          qrContainer.innerHTML='';qrContainer.appendChild(img);
-        }
-      }
-    },100);
+      const shareDiv=document.createElement('div');
+      shareDiv.style.cssText='background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:20px;margin:16px auto 0;max-width:400px;';
+      
+      const qrDiv=document.createElement('div');
+      qrDiv.style.cssText='display:flex;justify-content:center;margin:12px 0;';
+      const img=document.createElement('img');
+      img.src='https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data='+encodeURIComponent(importUrl);
+      img.width=180;img.height=180;img.alt='QR Code';
+      img.style.cssText='border-radius:8px;border:1px solid #ddd;';
+      img.onerror=function(){qrDiv.style.display='none';};
+      qrDiv.appendChild(img);
+
+      const title=document.createElement('p');
+      title.style.cssText='font-size:13px;font-weight:600;margin:0 0 4px;color:var(--text);';
+      title.textContent='Show this screen to HR';
+      const sub=document.createElement('p');
+      sub.style.cssText='font-size:12px;color:var(--text-3);margin:0 0 12px;';
+      sub.textContent='HR scans the QR code, or tap the button below to share the link';
+
+      const copyBtn=document.createElement('button');
+      copyBtn.textContent='Copy results link';
+      copyBtn.style.cssText='width:100%;height:40px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
+      copyBtn.onclick=function(){
+        navigator.clipboard.writeText(importUrl).then(()=>{
+          copyBtn.textContent='✓ Copied!';
+          setTimeout(()=>{copyBtn.textContent='Copy results link';},3000);
+        }).catch(()=>{prompt('Copy this link and send to HR:',importUrl);});
+      };
+
+      shareDiv.appendChild(title);
+      shareDiv.appendChild(sub);
+      shareDiv.appendChild(qrDiv);
+      shareDiv.appendChild(copyBtn);
+
+      const card=bodyEl.querySelector('.cv-card');
+      if(card)card.appendChild(shareDiv);
+    }catch(e){console.error('Share section error:',e);}
   }
 }
 
