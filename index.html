@@ -691,6 +691,22 @@ body.candidate-mode .topbar { display:none!important; }
       }
     }catch(e){console.error('Import error:',e);}
   }
+  // Handle ?r= short link — look up full URL in Supabase and redirect
+  if(search.indexOf('r=')!==-1&&search.indexOf('assess=')===-1){
+    var shortCode=new URLSearchParams(search).get('r');
+    if(shortCode){
+      var cfg=null;try{cfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){}
+      if(cfg&&cfg.url&&cfg.key){
+        fetch(cfg.url.replace(/\/$/,'')+'/rest/v1/links?code=eq.'+shortCode+'&select=url&limit=1',{
+          headers:{'apikey':cfg.key,'Authorization':'Bearer '+cfg.key}
+        }).then(function(r){return r.json();}).then(function(rows){
+          if(rows&&rows[0]&&rows[0].url){
+            window.location.replace(rows[0].url);
+          }
+        }).catch(function(){});
+      }
+    }
+  }
   var isCandidate=search.indexOf('assess=')!==-1||search.indexOf('interview=')!==-1||search.indexOf('enps=')!==-1;
   // Add class to <html> IMMEDIATELY so CSS hides admin chrome before anything renders
   if(isCandidate){
@@ -6615,6 +6631,33 @@ function saveCredentials(){
   try{localStorage.setItem('ybs_admin_creds',JSON.stringify({u:updatedU,p:updatedP}));}catch(e){}
   ['set-new-user','set-new-pass','set-confirm-pass'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   showMsg('Credentials updated successfully.',true);
+}
+
+/* ═══════════════════════════════════════════
+   LINK SHORTENER
+   Stores full links in Supabase `links` table.
+   Short link: ?r=ABC123
+═══════════════════════════════════════════ */
+function _makeShortCode(){
+  return Math.random().toString(36).slice(2,8).toUpperCase();
+}
+
+async function shortenLink(fullUrl){
+  if(!syncEnabled())return fullUrl; // fallback to full link
+  const code=_makeShortCode();
+  const base=window.location.href.split('?')[0].split('#')[0];
+  const shortUrl=base+'?r='+code;
+  try{
+    await fetch(_supaUrl('links'),{
+      method:'POST',
+      headers:{..._supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({code,url:fullUrl,created_at:new Date().toISOString()})
+    });
+    return shortUrl;
+  }catch(e){
+    console.warn('Shortener failed, using full link:',e);
+    return fullUrl;
+  }
 }
 
 /* ═══════════════════════════════════════════
