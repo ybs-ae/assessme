@@ -1011,6 +1011,7 @@ tbody tr:hover td{background:var(--surface-2);}
       <div class="settings-nav-item" onclick="switchSettingsTab('modules')" id="snav-modules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px;flex-shrink:0;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Modules</div>
       <div class="settings-nav-item" onclick="switchSettingsTab('thresholds')" id="snav-thresholds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px;flex-shrink:0;"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>Score thresholds</div>
       <div class="settings-nav-section">Account</div>
+      <div class="settings-nav-item" onclick="switchSettingsTab('sync')" id="snav-sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px;flex-shrink:0;"><polyline points="23,4 23,11 16,11"/><polyline points="1,20 1,13 8,13"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 11M1 13l4.64 5.36A9 9 0 0020.49 15"/></svg>Cloud sync</div>
       <div class="settings-nav-item" onclick="switchSettingsTab('notif')" id="snav-notif"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px;flex-shrink:0;"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>Notifications</div>
       <div class="settings-nav-item" onclick="switchSettingsTab('privacy')" id="snav-privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px;flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Privacy</div>
       <div class="settings-nav-item" onclick="switchSettingsTab('account')" id="snav-account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px;flex-shrink:0;"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Admin account</div>
@@ -2168,6 +2169,7 @@ function switchSettingsTab(tab){
   if(tab==='ai')setTimeout(loadApiKeyIntoSettings,50);
   if(tab==='modules'){const el=document.getElementById('set-modules-render');if(el)renderModuleChips('set-modules-render',defaultModules,'toggleDefaultModule');renderModuleDetail();}
   if(tab==='positions')renderSettingsPositions();
+  if(tab==='sync')renderSyncStatus();
 }
 function toggleFold(sectionId){
   const el=document.getElementById(sectionId);if(!el)return;
