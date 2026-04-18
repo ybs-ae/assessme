@@ -2975,11 +2975,36 @@ function updateBulkBar(){
   }
   renderDash();
 }
-function deleteSelected(){if(!confirm('Delete '+selectedCands.size+' selected candidate'+(selectedCands.size===1?'':'s')+'? This cannot be undone.'))return;candidates=candidates.filter(c=>!selectedCands.has(c.id));selectedCands.clear();persistCandidates();renderDash();}
+function deleteSelected(){
+  if(!confirm('Delete '+selectedCands.size+' selected candidate'+(selectedCands.size===1?'':'s')+'? This cannot be undone.'))return;
+  const toDelete=candidates.filter(c=>selectedCands.has(c.id));
+  candidates=candidates.filter(c=>!selectedCands.has(c.id));
+  selectedCands.clear();
+  persistCandidates();
+  // Delete from Supabase
+  toDelete.forEach(c=>{
+    if(c._token&&syncEnabled()){
+      fetch(_supaUrl('candidates?token=eq.'+encodeURIComponent(c._token)),{
+        method:'DELETE',headers:_supaHeaders()
+      }).catch(()=>{});
+    }
+  });
+  renderDash();
+}
 function deleteCandidate(id){
   if(!confirm('Delete this candidate?'))return;
+  const toDelete=candidates.filter(c=>c.id===id||String(c.id)===String(id));
   candidates=candidates.filter(c=>c.id!==id&&String(c.id)!==String(id));
-  persistCandidates();renderDash();
+  persistCandidates();
+  // Delete from Supabase
+  toDelete.forEach(c=>{
+    if(c._token&&syncEnabled()){
+      fetch(_supaUrl('candidates?token=eq.'+encodeURIComponent(c._token)),{
+        method:'DELETE',headers:_supaHeaders()
+      }).catch(()=>{});
+    }
+  });
+  renderDash();
 }
 function persistCandidates(){
   try{localStorage.setItem('vettiq_candidates',JSON.stringify(candidates));}catch(e){}
@@ -6809,7 +6834,8 @@ function renderSyncStatus(){
       +'<div style="font-size:11px;color:var(--text-3);margin-top:2px;">'+cfg.url+'</div></div>'
       +'<button class="btn btn-ghost btn-sm" onclick="syncDisconnect()" style="font-size:12px;">Disconnect</button>'
       +'</div>'
-      +'<div style="padding:10px 14px;background:var(--blue-s);border:1px solid var(--blue-b);border-radius:var(--r);margin-bottom:12px;font-size:12px;color:var(--blue);">Results sync automatically across all devices in real time.</div>';
+      +'<div style="padding:10px 14px;background:var(--blue-s);border:1px solid var(--blue-b);border-radius:var(--r);margin-bottom:12px;font-size:12px;color:var(--blue);">Results sync automatically across all devices in real time.</div>'
+      +'<div style="padding:10px 14px;background:var(--amber-s,#fffbeb);border:1px solid var(--amber-b,#fde68a);border-radius:var(--r);font-size:12px;color:var(--amber,#b45309);">If positions reset on refresh, run this in Supabase SQL Editor:<br><code style="font-size:11px;user-select:all;">alter table app_config enable row level security; create policy "anon_all" on app_config for all to anon using (true) with check (true);</code></div>';
   } else {
     el.innerHTML='<div style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px;font-size:13px;color:var(--text-2);">Not connected — results stay in browser only.</div>';
   }
