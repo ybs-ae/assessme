@@ -2466,7 +2466,9 @@ function quickSendInvite(){
   const tok='tok-'+Math.random().toString(36).slice(2,10);
   const selectedMods={big5:!!quickModuleState.big5,cognitive:!!quickModuleState.cognitive,typing:!!quickModuleState.typing,video:!!quickModuleState.video};
   const modCode=(selectedMods.big5?'b':'')+(selectedMods.cognitive?'c':'')+(selectedMods.typing?'t':'')+(selectedMods.video?'v':'');
-  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok+(modCode?'&m='+modCode:'');
+  const _sbCfg=syncGetConfig();
+  const _sbParam=_sbCfg?'&sb='+btoa(JSON.stringify({url:_sbCfg.url,key:_sbCfg.key})):'';
+  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok+(modCode?'&m='+modCode:'')+_sbParam;
   const hasVideo=quickModuleState.video===true;
   candidates.push({id:Date.now(),name,email,role,status:'Invited',invited:invitedAt,score:null,verdict:'Pending',notes:'',_token:tok,modules:selectedMods});
   invites.push({name,email,role,status:'Invited',date:invitedAt});
@@ -5018,6 +5020,17 @@ function initCandidateView(){
     }catch(e){}
     // Push "Link Opened" status immediately when candidate opens URL
     cvPushStatus(assessToken,'Link Opened');
+    // Read Supabase config from URL (?sb=base64) — saves to localStorage on candidate device
+    const _sbParam=params.get('sb')||'';
+    if(_sbParam){
+      try{
+        const _sbCfg=JSON.parse(atob(_sbParam));
+        if(_sbCfg&&_sbCfg.url&&_sbCfg.key){
+          localStorage.setItem('ybs_sync_cfg',JSON.stringify(_sbCfg));
+          console.log('Supabase config loaded from link');
+        }
+      }catch(e){console.warn('Could not parse sb param:',e);}
+    }
     // Load modules from URL param first (most reliable — works cross-device)
     const _modParam=params.get('m')||'';
     if(_modParam){
@@ -5693,49 +5706,8 @@ function cvDone(){
     +'<div style="font-size:12px;color:var(--text-3);">Results are confidential and for HR review only.</div>'
     +'</div>';
 
-  // ── 6. If NO cloud sync: show one-tap share button ──────────
-  if(!syncEnabled()){
-    try{
-      const payload=JSON.stringify({
-        _assessExport:true,
-        id:_rec?.id||Date.now(),
-        name:cvState.name,email:cvState.email,role:cvState.role,
-        status:'Completed',invited:_rec?.invited||ds,
-        score:scoreData,modules:{big5:hadB5,cognitive:hadCog,typing:hadTyp},
-        timing:cvState.timing||{},gender:cvState.gender,age:cvState.age,country:cvState.country,
-        verdict:'Pending',notes:'',_token:cvState.token
-      });
-      const b64=btoa(unescape(encodeURIComponent(payload)));
-      const importUrl=window.location.href.split('?')[0].split('#')[0]+'?import='+b64;
-      const hrEmail=localStorage.getItem('ybs_hr_email')||'';
-
-      const note=document.createElement('div');
-      note.style.cssText='margin-top:20px;padding:16px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;text-align:left;';
-      note.innerHTML='<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">One more step</div>'
-        +'<div style="font-size:12px;color:var(--text-3);margin-bottom:12px;line-height:1.6;">Your results are saved on this device. Tap the button below to send them to HR so they appear in the system.</div>';
-      
-      const btn=document.createElement('button');
-      btn.style.cssText='width:100%;height:42px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
-      btn.textContent=hrEmail?'Send results to HR':'Share results link';
-      btn.onclick=function(){
-        if(hrEmail){
-          const subj=encodeURIComponent('Assessment Results — '+cvState.name);
-          const body=encodeURIComponent('Hi,\n\nHere are my assessment results. Click the link below to import them:\n\n'+importUrl+'\n\nThank you,\n'+cvState.name);
-          window.open('mailto:'+hrEmail+'?subject='+subj+'&body='+body);
-        } else if(navigator.share){
-          navigator.share({title:'Assessment Results',text:'Click to import my assessment results',url:importUrl}).catch(()=>{});
-        } else {
-          navigator.clipboard.writeText(importUrl).then(()=>{
-            btn.textContent='✓ Link copied — send to HR!';
-            setTimeout(()=>{btn.textContent='Share results link';},4000);
-          }).catch(()=>{prompt('Copy this link and send to HR:',importUrl);});
-        }
-      };
-      note.appendChild(btn);
-      const card=bodyEl.querySelector('.cv-card');
-      if(card)card.appendChild(note);
-    }catch(e){console.error('Share section error:',e);}
-  }
+  // Results saved — candidate sees clean done screen only
+  // Supabase sync (if connected) pushes results to cloud in background
 }
 
 function cvStartVideoInterview(intToken){
@@ -6814,6 +6786,12 @@ if(!isCandidateView){
   if(authed){
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('admin-shell').style.display='flex';
+    // Auto-pull from Supabase every 30s if connected
+    setInterval(function(){
+      if(syncEnabled()){
+        syncPullCandidates().then(function(ok){if(ok)renderDash();}).catch(function(){});
+      }
+    },30000);
     // Restore last visited page — default dashboard
     const validPages=['dashboard','assessments','interview','stats','enps','settings','candidates','invite','results'];
     let lastPage='dashboard';
