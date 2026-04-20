@@ -3655,7 +3655,8 @@ function openReport(id){
     +(modsArray(c.modules).includes('video')?'v':'')
   ):'bct';
   // Determine if we need to shorten the link
-  const _isLongLink=!c._fullLink||c._fullLink.includes('sb=')||c._fullLink.includes('?assess=');
+  // Link needs shortening only if it doesn't have ?r= (short code) yet
+  const _isLongLink=!c._fullLink||(!c._fullLink.includes('?r=')&&c._fullLink.includes('?assess='));
   const _needsShorten=c._token&&syncEnabled()&&_isLongLink;
   // Show placeholder while shortening, or the stored short link
   const assessLink=c._token?(_needsShorten?'Generating short link…':(c._fullLink||buildAssessLink(c._token,_pModCode))):'';
