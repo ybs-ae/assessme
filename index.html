@@ -2496,13 +2496,14 @@ function quickSendInvite(){
   const tok='tok-'+Math.random().toString(36).slice(2,10);
   const selectedMods={big5:!!quickModuleState.big5,cognitive:!!quickModuleState.cognitive,typing:!!quickModuleState.typing,video:!!quickModuleState.video};
   const modCode=(selectedMods.big5?'b':'')+(selectedMods.cognitive?'c':'')+(selectedMods.typing?'t':'')+(selectedMods.video?'v':'');
-  const _lRef=_supaRef(syncGetConfig()?.url);
-  const link=window.location.href.split('?')[0].split('#')[0]+'?assess='+tok+(modCode?'&m='+modCode:'')
-    +(_lRef?'&r='+_lRef:'');
+  const link=buildAssessLink(tok, modCode);
   const hasVideo=quickModuleState.video===true;
-  candidates.push({id:Date.now(),name,email,role,status:'Invited',invited:invitedAt,score:null,verdict:'Pending',notes:'',_token:tok,modules:selectedMods});
+  const _newCand={id:Date.now(),name,email,role,status:'Invited',invited:invitedAt,score:null,verdict:'Pending',notes:'',_token:tok,modules:selectedMods,_fullLink:link};
+  candidates.push(_newCand);
   invites.push({name,email,role,status:'Invited',date:invitedAt});
   persistCandidates();
+  // Push invite record to Supabase immediately
+  syncPushCandidate(_newCand).catch(()=>{});
   if(hasVideo){
     const intTok='int-'+Math.random().toString(36).slice(2,10);
     // Use existing INT_QUESTIONS or generate role-based defaults
@@ -3631,8 +3632,8 @@ function openReport(id){
     +(modsArray(c.modules).includes('typing')?'t':'')
     +(modsArray(c.modules).includes('video')?'v':'')
   ):'bct';
-  const _plRef=_supaRef(syncGetConfig()?.url);
-  const assessLink=c._token?(baseUrl+'?assess='+c._token+(_pModCode?'&m='+_pModCode:'')+(_plRef?'&r='+_plRef:'')):'';
+  // Use stored link if available (same as what was emailed), otherwise build fresh
+  const assessLink=c._token?(c._fullLink||buildAssessLink(c._token, _pModCode)):'';
   // Only show video section if video was explicitly chosen for this candidate
   const intProfile=c._interviewToken
     ?interviewProfiles.find(p=>p.token===c._interviewToken)
@@ -5076,26 +5077,18 @@ function initCandidateView(){
     }catch(e){}
     // Push "Link Opened" status immediately when candidate opens URL
     cvPushStatus(assessToken,'Link Opened');
-    // Read Supabase config from URL (?sb=base64) — saves to localStorage on candidate device
-
-    // Fetch Supabase config using short project ref in URL
-    const _rParam=params.get('r')||'';
-    if(_rParam&&!syncEnabled()){
-      const _rUrl='https://'+_rParam+'.supabase.co';
-      // Fetch the anon key from our app_config table (publicly readable)
-      // Try to load the config using the project ref
-      // The anon key must be in localStorage already (set by admin) or we can't fetch
-      // As a fallback, try with empty key (only works if Supabase RLS allows public read)
-      const _existingCfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');
-      const _tryKey=_existingCfg?.key||'';
-      fetch(_rUrl+'/rest/v1/'+SUPA_CONFIG_TABLE+'?id=eq.sync&select=url,key',{
-        headers:{'apikey':_tryKey,'Authorization':'Bearer '+_tryKey}
-      }).then(function(res){return res.json();}).then(function(rows){
-        if(rows&&rows[0]&&rows[0].key){
-          localStorage.setItem('ybs_sync_cfg',JSON.stringify({url:rows[0].url,key:rows[0].key}));
-          console.log('Supabase config loaded from cloud');
+    // Read Supabase config from URL ?sb= param and save to localStorage
+    // This is how candidate's device gets Supabase credentials without any setup
+    const _sbRaw=params.get('sb')||'';
+    if(_sbRaw){
+      try{
+        const _sbParts=atob(_sbRaw).split('|');
+        if(_sbParts.length>=2){
+          const _sbCfg={url:_sbParts[0],key:_sbParts.slice(1).join('|')};
+          localStorage.setItem('ybs_sync_cfg',JSON.stringify(_sbCfg));
+          console.log('Supabase config saved from link — results will sync automatically');
         }
-      }).catch(function(e){console.warn('Config fetch failed:',e);});
+      }catch(e){console.warn('Could not parse sb param:',e);}
     }
     // Load modules from URL param first (most reliable — works cross-device)
     const _modParam=params.get('m')||'';
@@ -5131,7 +5124,7 @@ function initCandidateView(){
     // Restore saved progress if any
     const hadProgress=cvRestore(assessToken);
     if(hadProgress==='completed'){
-      // Already completed — show static done screen without re-saving
+      // Already completed — show static done screen
       const _nm2=(cvState.name||'').split(' ')[0]||'there';
       document.getElementById('cv-body').innerHTML=
         '<div class="cv-card" style="max-width:520px;margin:0 auto;text-align:center;">'
@@ -5146,6 +5139,18 @@ function initCandidateView(){
         const lbl=CV_STEPS[stepIdx];
         return(pos>0?'<div class="cv-step-line"></div>':'')+'<div class="cv-step"><div class="cv-step-dot done">✓</div><span class="cv-step-label" style="color:var(--green);">'+lbl+'</span></div>';
       }).join('');
+      // AUTO-PUSH to Supabase if config is now available (candidate reopened with new link)
+      if(syncEnabled()){
+        try{
+          const _allCands=JSON.parse(localStorage.getItem('vettiq_candidates')||'[]');
+          const _thisRec=_allCands.find(c=>c._token===assessToken);
+          if(_thisRec&&_thisRec.status==='Completed'){
+            syncPushCandidate(_thisRec).then(()=>{
+              console.log('✓ Recovered results pushed to Supabase for',_thisRec.name);
+            }).catch(e=>console.warn('Push failed:',e));
+          }
+        }catch(e){}
+      }
     } else if(hadProgress&&cvState.step>0){
       cvRenderWithResumeBanner();
     } else {
@@ -5754,9 +5759,19 @@ function cvDone(){
   try{localStorage.setItem('vettiq_candidates',JSON.stringify(liveCands));}catch(e){console.error('Save failed:',e);}
   candidates=liveCands;
 
-  // ── 3. Cloud sync (background, non-blocking) ───────────────────
+  // ── 3. Cloud sync — push results to Supabase ──────────────────
   const _rec=liveCands[liveIdx>=0?liveIdx:0];
-  if(_rec)syncPushCandidate(_rec).catch(()=>{});
+  if(_rec){
+    if(syncEnabled()){
+      syncPushCandidate(_rec).then(()=>{
+        console.log('✓ Results pushed to Supabase for',_rec.name);
+      }).catch(e=>{
+        console.error('✗ Supabase push failed:',e);
+      });
+    } else {
+      console.warn('No Supabase config — results saved locally only. sb= param may be missing from link.');
+    }
+  }
 
   // ── 4. Mark progress as complete ──────────────────────────────
   try{localStorage.setItem('cv_progress_'+cvState.token,JSON.stringify({step:4,completedAt:Date.now(),name:cvState.name,token:cvState.token}));}catch(e){}
@@ -6706,22 +6721,23 @@ function _makeShortCode(){
 }
 
 async function shortenLink(fullUrl){
-  if(!syncEnabled())return fullUrl; // fallback to full link
+  if(!syncEnabled())return fullUrl; // no Supabase = use full link
   const code=_makeShortCode();
   const base=window.location.href.split('?')[0].split('#')[0];
-  // Include sb= in short link so candidate device can do the lookup
   const cfg=syncGetConfig();
+  // Short URL includes sb= so the redirect page can look up the full link
   const sbParam=cfg?'&sb='+btoa(cfg.url+'|'+cfg.key):'';
   const shortUrl=base+'?r='+code+sbParam;
   try{
-    await fetch(_supaUrl('links'),{
+    const resp=await fetch(_supaUrl('links'),{
       method:'POST',
       headers:{..._supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},
       body:JSON.stringify({code,url:fullUrl,created_at:new Date().toISOString()})
     });
+    if(!resp.ok){console.warn('Shortener failed, status:',resp.status);return fullUrl;}
     return shortUrl;
   }catch(e){
-    console.warn('Shortener failed, using full link:',e);
+    console.warn('Shortener failed:',e);
     return fullUrl;
   }
 }
@@ -6735,6 +6751,20 @@ const SUPA_TABLE='candidates';
 const SUPA_CONFIG_TABLE='app_config';
 // Extract 20-char project ref from Supabase URL
 function _supaRef(url){const m=(url||'').match(/https:\/\/([a-z0-9]+)\.supabase\.co/);return m?m[1]:'';}
+
+// Build a full assess link with all params embedded
+function buildAssessLink(tok, modCode){
+  const base=window.location.href.split('?')[0].split('#')[0];
+  const cfg=syncGetConfig();
+  const sbParam=cfg?'&sb='+btoa(cfg.url+'|'+cfg.key):'';
+  return base+'?assess='+tok+(modCode?'&m='+modCode:'')+sbParam;
+}
+
+// Build and shorten an assess link — returns promise
+function buildShortAssessLink(tok, modCode){
+  const full=buildAssessLink(tok, modCode);
+  return shortenLink(full); // returns promise resolving to short or full link
+}
 
 function syncGetConfig(){
   try{return JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){return null;}
