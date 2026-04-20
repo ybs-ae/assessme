@@ -694,23 +694,40 @@ body.candidate-mode .topbar { display:none!important; }
   // Handle ?r= short link — look up full URL in Supabase and redirect
   if(search.indexOf('r=')!==-1&&search.indexOf('assess=')===-1){
     var shortCode=new URLSearchParams(search).get('r');
-    var sbRaw=new URLSearchParams(search).get('sb');
+    var pRaw=new URLSearchParams(search).get('p');
+    var sbRaw=new URLSearchParams(search).get('sb'); // legacy support
     if(shortCode){
-      // Get Supabase config: from URL param first, then localStorage
+      // Get Supabase config from localStorage or URL params
       var cfg=null;
-      if(sbRaw){
+      try{cfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){}
+      // If p= param present but no key in localStorage, we can't do authenticated lookup
+      // Try to get project URL from p= param and use stored key
+      if(!cfg&&pRaw){
+        try{
+          var pUrl=atob(pRaw);
+          // No key available — can't authenticate
+          cfg=null;
+        }catch(e){}
+      }
+      // Legacy: sb= param has full config
+      if(!cfg&&sbRaw){
         try{var parts=atob(sbRaw).split('|');if(parts.length>=2)cfg={url:parts[0],key:parts.slice(1).join('|')};}catch(e){}
       }
-      if(!cfg){try{cfg=JSON.parse(localStorage.getItem('ybs_sync_cfg')||'null');}catch(e){}}
-      if(cfg&&cfg.url&&cfg.key){
-        // Save config to localStorage for future use
-        try{localStorage.setItem('ybs_sync_cfg',JSON.stringify(cfg));}catch(e){}
-        fetch(cfg.url.replace(/\/$/,'')+'/rest/v1/links?code=eq.'+shortCode+'&select=url&limit=1',{
-          headers:{'apikey':cfg.key,'Authorization':'Bearer '+cfg.key}
+      // Try authenticated lookup first (if config available)
+      var lookupUrl=null;
+      if(cfg&&cfg.url)lookupUrl=cfg.url;
+      // Fall back to s= param (project ref only, public read)
+      if(!lookupUrl){
+        var sRef=new URLSearchParams(search).get('s');
+        if(sRef)lookupUrl='https://'+sRef+'.supabase.co';
+      }
+      if(lookupUrl){
+        var headers={'apikey':'','Authorization':'Bearer '};
+        if(cfg&&cfg.key){headers['apikey']=cfg.key;headers['Authorization']='Bearer '+cfg.key;}
+        fetch(lookupUrl.replace(/\/$/,'')+'/rest/v1/links?code=eq.'+shortCode+'&select=url&limit=1',{
+          headers:headers
         }).then(function(r){return r.json();}).then(function(rows){
-          if(rows&&rows[0]&&rows[0].url){
-            window.location.replace(rows[0].url);
-          }
+          if(rows&&rows[0]&&rows[0].url){window.location.replace(rows[0].url);}
         }).catch(function(){});
       }
     }
@@ -6740,10 +6757,12 @@ async function shortenLink(fullUrl){
   if(!syncEnabled())return fullUrl; // no Supabase = use full link
   const code=_makeShortCode();
   const base=window.location.href.split('?')[0].split('#')[0];
-  const cfg=syncGetConfig();
-  // Short URL includes sb= so the redirect page can look up the full link
-  const sbParam=cfg?'&sb='+btoa(cfg.url+'|'+cfg.key):'';
-  const shortUrl=base+'?r='+code+sbParam;
+  // Short URL: ?r=CODE&s=projectref
+  // s= is the 20-char Supabase project ref — used to build lookup URL
+  // links table has public read so no key needed
+  const cfg2=syncGetConfig();
+  const sRef=cfg2?_supaRef(cfg2.url):'';
+  const shortUrl=base+'?r='+code+(sRef?'&s='+sRef:'');
   try{
     const resp=await fetch(_supaUrl('links'),{
       method:'POST',
