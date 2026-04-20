@@ -2532,6 +2532,9 @@ function quickSendInvite(){
   const intLinkForEmail=intProfileForEmail?(window.location.href.split('?')[0].split('#')[0]+'?interview='+intProfileForEmail.token):'';
   // Use built-in Supabase shortener
   shortenLink(link).then(function(finalLink){
+    // Save short link to candidate record so profile panel shows same link
+    const _cRec2=candidates.find(c=>c._token===tok);
+    if(_cRec2){_cRec2._fullLink=finalLink;persistCandidates();syncPushCandidate(_cRec2).catch(()=>{});}
     const body='Hi,\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nClick the link below to begin:\n\n'+finalLink+'\n\nPlease complete within 7 days. This link is unique to you.\n\nThank you,\n'+co+' Team';
     const gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Assessment invitation - '+role+' | '+co)+'&body='+encodeURIComponent(body);
     window.open(gmailUrl,'_blank');
@@ -3633,7 +3636,19 @@ function openReport(id){
     +(modsArray(c.modules).includes('video')?'v':'')
   ):'bct';
   // Use stored link if available (same as what was emailed), otherwise build fresh
+  // Use stored short link if available, otherwise build fresh and shorten async
   const assessLink=c._token?(c._fullLink||buildAssessLink(c._token, _pModCode)):'';
+  // If no short link stored yet, shorten and save in background
+  if(c._token&&!c._fullLink&&syncEnabled()){
+    buildShortAssessLink(c._token,_pModCode).then(function(short){
+      c._fullLink=short;persistCandidates();
+      // Refresh the link display
+      const linkEl=document.getElementById('assess-link-display-'+c.id);
+      const copyEl=document.getElementById('aCopyBtn'+c.id);
+      if(linkEl)linkEl.textContent=short;
+      if(copyEl)copyEl.onclick=function(){navigator.clipboard.writeText(short).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);};
+    }).catch(()=>{});
+  }
   // Only show video section if video was explicitly chosen for this candidate
   const intProfile=c._interviewToken
     ?interviewProfiles.find(p=>p.token===c._interviewToken)
