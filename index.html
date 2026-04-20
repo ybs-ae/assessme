@@ -713,22 +713,24 @@ body.candidate-mode .topbar { display:none!important; }
       if(!cfg&&sbRaw){
         try{var parts=atob(sbRaw).split('|');if(parts.length>=2)cfg={url:parts[0],key:parts.slice(1).join('|')};}catch(e){}
       }
-      // Try authenticated lookup first (if config available)
-      var lookupUrl=null;
-      if(cfg&&cfg.url)lookupUrl=cfg.url;
-      // Fall back to s= param (project ref only, public read)
-      if(!lookupUrl){
-        var sRef=new URLSearchParams(search).get('s');
-        if(sRef)lookupUrl='https://'+sRef+'.supabase.co';
+      // Get Supabase config: from sb= URL param first, then localStorage
+      var sbParam2=new URLSearchParams(search).get('sb');
+      if(sbParam2&&!cfg){
+        try{
+          var _dec=decodeURIComponent(escape(atob(sbParam2)));
+          var _pts=_dec.split('|');
+          if(_pts.length>=2)cfg={url:_pts[0],key:_pts.slice(1).join('|')};
+          if(cfg)localStorage.setItem('ybs_sync_cfg',JSON.stringify(cfg));
+        }catch(e){}
       }
-      if(lookupUrl){
-        var headers={'apikey':'','Authorization':'Bearer '};
-        if(cfg&&cfg.key){headers['apikey']=cfg.key;headers['Authorization']='Bearer '+cfg.key;}
-        fetch(lookupUrl.replace(/\/$/,'')+'/rest/v1/links?code=eq.'+shortCode+'&select=url&limit=1',{
-          headers:headers
+      if(cfg&&cfg.url&&cfg.key){
+        var lookupUrl2=cfg.url.replace(/\/$/,'')+'/rest/v1/links?code=eq.'+shortCode+'&select=url&limit=1';
+        fetch(lookupUrl2,{
+          headers:{'apikey':cfg.key,'Authorization':'Bearer '+cfg.key}
         }).then(function(r){return r.json();}).then(function(rows){
           if(rows&&rows[0]&&rows[0].url){window.location.replace(rows[0].url);}
-        }).catch(function(){});
+          else{console.warn('Short code not found:',shortCode);}
+        }).catch(function(e){console.error('Lookup failed:',e);});
       }
     }
   }
@@ -6757,12 +6759,12 @@ async function shortenLink(fullUrl){
   if(!syncEnabled())return fullUrl; // no Supabase = use full link
   const code=_makeShortCode();
   const base=window.location.href.split('?')[0].split('#')[0];
-  // Short URL: ?r=CODE&s=projectref
-  // s= is the 20-char Supabase project ref — used to build lookup URL
-  // links table has public read so no key needed
+  // Short URL: ?r=CODE&sb=base64(url|key)
+  // sb= carries the full Supabase config so any device can do the lookup
+  // Anon key is PUBLIC by design (Supabase docs) — safe in URLs
   const cfg2=syncGetConfig();
-  const sRef=cfg2?_supaRef(cfg2.url):'';
-  const shortUrl=base+'?r='+code+(sRef?'&s='+sRef:'');
+  const sbShort=cfg2?btoa(unescape(encodeURIComponent(cfg2.url+'|'+cfg2.key))):'';
+  const shortUrl=base+'?r='+code+(sbShort?'&sb='+sbShort:'');
   try{
     const resp=await fetch(_supaUrl('links'),{
       method:'POST',
