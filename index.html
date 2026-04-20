@@ -2523,6 +2523,16 @@ function quickSendInvite(){
   persistCandidates();
   // Push invite record to Supabase immediately
   syncPushCandidate(_newCand).catch(()=>{});
+  // Store Supabase config in links table keyed by token
+  // Candidate device looks this up to get credentials for pushing results
+  if(syncEnabled()){
+    const _cfg=syncGetConfig();
+    fetch(_supaUrl('links'),{
+      method:'POST',
+      headers:{..._supaHeaders(),'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({code:tok,url:_cfg.url+'|'+_cfg.key,created_at:new Date().toISOString()})
+    }).catch(()=>{});
+  }
   if(hasVideo){
     const intTok='int-'+Math.random().toString(36).slice(2,10);
     // Use existing INT_QUESTIONS or generate role-based defaults
@@ -2549,9 +2559,8 @@ function quickSendInvite(){
   const co=document.getElementById('set-company')?.value||'Assess YBS';
   const intProfileForEmail=hasVideo?interviewProfiles.find(p=>p.token===candidates[candidates.length-1]?._interviewToken):null;
   const intLinkForEmail=intProfileForEmail?(window.location.href.split('?')[0].split('#')[0]+'?interview='+intProfileForEmail.token):'';
-  // Use built-in Supabase shortener
-  shortenLink(link).then(function(finalLink){
-    // Save short link to candidate record so profile panel shows same link
+  // Use clean simple link — no shortener needed
+  (function(finalLink){
     const _cRec2=candidates.find(c=>c._token===tok);
     if(_cRec2){_cRec2._fullLink=finalLink;persistCandidates();syncPushCandidate(_cRec2).catch(()=>{});}
     const body='Hi,\n\nYou have been invited to complete a pre-employment assessment'+(hasVideo?' and video interview':'')+' for the '+role+' role at '+co+'.\n\nClick the link below to begin:\n\n'+finalLink+'\n\nPlease complete within 7 days. This link is unique to you.\n\nThank you,\n'+co+' Team';
@@ -3655,21 +3664,8 @@ function openReport(id){
     +(modsArray(c.modules).includes('video')?'v':'')
   ):'bct';
   // Determine if we need to shorten the link
-  // Link needs shortening only if it doesn't have ?r= (short code) yet
-  const _isLongLink=!c._fullLink||(!c._fullLink.includes('?r=')&&c._fullLink.includes('?assess='));
-  const _needsShorten=c._token&&syncEnabled()&&_isLongLink;
-  // Show placeholder while shortening, or the stored short link
-  const assessLink=c._token?(_needsShorten?'Generating short link…':(c._fullLink||buildAssessLink(c._token,_pModCode))):'';
-  // Shorten in background and update display
-  if(_needsShorten){
-    buildShortAssessLink(c._token,_pModCode).then(function(short){
-      c._fullLink=short;persistCandidates();syncPushCandidate(c).catch(()=>{});
-      const linkEl=document.getElementById('assess-link-display-'+c.id);
-      const copyEl=document.getElementById('aCopyBtn'+c.id);
-      if(linkEl)linkEl.textContent=short;
-      if(copyEl){copyEl.disabled=false;copyEl.onclick=function(){navigator.clipboard.writeText(short).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);};}
-    }).catch(()=>{});
-  }
+  // Build clean assess link
+  const assessLink=c._token?(c._fullLink||buildAssessLink(c._token,_pModCode)):'';
   // Only show video section if video was explicitly chosen for this candidate
   const intProfile=c._interviewToken
     ?interviewProfiles.find(p=>p.token===c._interviewToken)
@@ -5113,18 +5109,16 @@ function initCandidateView(){
     }catch(e){}
     // Push "Link Opened" status immediately when candidate opens URL
     cvPushStatus(assessToken,'Link Opened');
-    // Read Supabase config from URL ?sb= param and save to localStorage
-    // This is how candidate's device gets Supabase credentials without any setup
+    // Supabase config is pre-loaded at startup for all devices
+    // sb= URL param still supported for legacy links
     const _sbRaw=params.get('sb')||'';
     if(_sbRaw){
       try{
-        const _sbParts=atob(_sbRaw).split('|');
+        const _sbParts=atob(decodeURIComponent(_sbRaw)).split('|');
         if(_sbParts.length>=2){
-          const _sbCfg={url:_sbParts[0],key:_sbParts.slice(1).join('|')};
-          localStorage.setItem('ybs_sync_cfg',JSON.stringify(_sbCfg));
-          console.log('Supabase config saved from link — results will sync automatically');
+          localStorage.setItem('ybs_sync_cfg',JSON.stringify({url:_sbParts[0],key:_sbParts.slice(1).join('|')}));
         }
-      }catch(e){console.warn('Could not parse sb param:',e);}
+      }catch(e){}
     }
     // Load modules from URL param first (most reliable — works cross-device)
     const _modParam=params.get('m')||'';
@@ -6786,22 +6780,31 @@ async function shortenLink(fullUrl){
    Candidate submits → saved to Supabase → admin sees instantly.
 ═══════════════════════════════════════════ */
 const SUPA_TABLE='candidates';
+// Default Supabase config — anon key is public by design
+// Loaded at startup so candidate devices can push results without any setup
+(function(){
+  try{
+    if(!localStorage.getItem('ybs_sync_cfg')){
+      localStorage.setItem('ybs_sync_cfg',JSON.stringify({
+        url:'https://ygvwdixzntggyqcziyzz.supabase.co',
+        key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlndndkaXh6bnRnZ3lxY3ppeXp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5MzgxMjgsImV4cCI6MjA2MDUxNDEyOH0.NzpX4Bl8AWKCxC4OutF2UKJO4NC6-hAtGdlhvAITj7s'
+      }));
+    }
+  }catch(e){}
+})();
 const SUPA_CONFIG_TABLE='app_config';
 // Extract 20-char project ref from Supabase URL
 function _supaRef(url){const m=(url||'').match(/https:\/\/([a-z0-9]+)\.supabase\.co/);return m?m[1]:'';}
 
-// Build a full assess link with all params embedded
+// Build a clean assess link — just token and modules, no credentials
 function buildAssessLink(tok, modCode){
   const base=window.location.href.split('?')[0].split('#')[0];
-  const cfg=syncGetConfig();
-  const sbParam=cfg?'&sb='+btoa(cfg.url+'|'+cfg.key):'';
-  return base+'?assess='+tok+(modCode?'&m='+modCode:'')+sbParam;
+  return base+'?assess='+tok+(modCode?'&m='+modCode:'');
 }
 
-// Build and shorten an assess link — returns promise
+// Build assess link — same as buildAssessLink (shortener removed, was causing issues)
 function buildShortAssessLink(tok, modCode){
-  const full=buildAssessLink(tok, modCode);
-  return shortenLink(full); // returns promise resolving to short or full link
+  return Promise.resolve(buildAssessLink(tok, modCode));
 }
 
 function syncGetConfig(){
