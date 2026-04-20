@@ -3635,18 +3635,19 @@ function openReport(id){
     +(modsArray(c.modules).includes('typing')?'t':'')
     +(modsArray(c.modules).includes('video')?'v':'')
   ):'bct';
-  // Use stored link if available (same as what was emailed), otherwise build fresh
-  // Use stored short link if available, otherwise build fresh and shorten async
-  const assessLink=c._token?(c._fullLink||buildAssessLink(c._token, _pModCode)):'';
-  // If no short link stored yet, shorten and save in background
-  if(c._token&&!c._fullLink&&syncEnabled()){
+  // Determine if we need to shorten the link
+  const _isLongLink=!c._fullLink||c._fullLink.includes('sb=')||c._fullLink.includes('?assess=');
+  const _needsShorten=c._token&&syncEnabled()&&_isLongLink;
+  // Show placeholder while shortening, or the stored short link
+  const assessLink=c._token?(_needsShorten?'Generating short link…':(c._fullLink||buildAssessLink(c._token,_pModCode))):'';
+  // Shorten in background and update display
+  if(_needsShorten){
     buildShortAssessLink(c._token,_pModCode).then(function(short){
-      c._fullLink=short;persistCandidates();
-      // Refresh the link display
+      c._fullLink=short;persistCandidates();syncPushCandidate(c).catch(()=>{});
       const linkEl=document.getElementById('assess-link-display-'+c.id);
       const copyEl=document.getElementById('aCopyBtn'+c.id);
       if(linkEl)linkEl.textContent=short;
-      if(copyEl)copyEl.onclick=function(){navigator.clipboard.writeText(short).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);};
+      if(copyEl){copyEl.disabled=false;copyEl.onclick=function(){navigator.clipboard.writeText(short).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000);};}
     }).catch(()=>{});
   }
   // Only show video section if video was explicitly chosen for this candidate
