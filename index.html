@@ -2275,7 +2275,7 @@ function toggleFold(sectionId){
 ═══════════════════════════════════════════ */
 const AV_COLORS=['#2a2a2a','#1a6b4a','#5a3a8a','#7a4a1e','#3a3a4a','#4a3a6a','#2a5c4a'];
 function avColor(i){return AV_COLORS[i%AV_COLORS.length];}
-function ini(n){return n.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);}
+function ini(n){if(!n||typeof n!=='string')return'??';return n.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2)||'??';}
 function overallScore(s){
   if(!s)return null;
   // Only include modules that actually have data
